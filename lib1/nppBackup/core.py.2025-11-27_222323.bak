@@ -1,0 +1,410 @@
+# début du "core" version "31"
+version = ('core.py', 30)
+print(f"début de {version[0]} v{version[1]}")
+
+try:
+    __core_already_done
+except NameError:
+    __core_already_done = False
+
+if not __core_already_done:
+    from memoire import mem
+    from dictionnaire import create
+    from piles import piles
+    import uasyncio as asyncio
+
+    # ========== OPCODES NIVEAU 0 : PRIMITIVES ==========
+    # Stack manipulation
+    OP_EXIT     = 0
+    OP_DUP      = 1
+    OP_DROP     = 2
+    OP_SWAP     = 3
+    OP_OVER     = 4
+    OP_ROT      = 5
+    OP_2DUP_P   = 34  # Primitive version (optimisée)
+    OP_2DROP_P  = 35
+    OP_NIP      = 36
+    OP_TUCK     = 37
+
+    # Arithmetic
+    OP_ADD      = 6
+    OP_SUB      = 7
+    OP_MUL      = 8
+    OP_DIV      = 9
+    OP_MOD      = 10
+    OP_NEGATE   = 11
+    OP_ABS      = 12
+
+    # Comparison
+    OP_LT       = 111
+    OP_GT       = 112
+    OP_EQ       = 113
+    OP_ZLESS    = 114
+    OP_ZEQUAL   = 115
+
+    # Memory
+    OP_FETCH    = 13
+    OP_STORE    = 14
+    OP_CFETCH   = 15
+    OP_CSTORE   = 16
+    OP_FETCHP   = 38  # +@
+    OP_STOREP   = 39  # +!
+
+    # I/O
+    OP_DOT      = 17
+    OP_CR       = 18
+    OP_EMIT     = 19
+    OP_KEY      = 20
+    OP_SPACE    = 40
+    OP_SPACES   = 41
+
+    # Literals & Control
+    OP_LIT      = 21
+    OP_BRANCH   = 22
+    OP_ZBRANCH  = 23
+    OP_COLON    = 24
+    OP_SEMI     = 25
+
+    # Bit operations
+    OP_AND      = 42
+    OP_OR       = 43
+    OP_XOR      = 44
+    OP_NOT      = 45
+
+    # Loops runtime
+    OP_DO       = 90
+    OP_LOOP     = 91
+    OP_PLOOP    = 92
+    OP_I        = 109
+    OP_J        = 110
+
+    # Debug & System
+    OP_WORDS    = 29
+    OP_DOTSS    = 30
+    OP_TESTS    = 31
+    OP_FORGET   = 46
+    OP_SEE      = 47
+
+    # Control flow markers (immediates)
+    MARK_BEGIN  = 998
+    MARK_THEN   = 999
+    MARK_DO     = 997
+    MARK_LOOP   = 996
+
+    # Higher level ops (>= 100)
+    OP_DEBUG    = 101
+    OP_PRINTSTR = 102
+    OP_CONSTANT = 103
+    OP_VARIABLE = 104
+    OP_ALLOT    = 105
+    OP_HEX      = 106
+    OP_DECIMAL  = 107
+    OP_BASE     = 108
+    OP_DEPTH    = 116
+    OP_MIN      = 117
+    OP_MAX      = 118
+
+    # === PRIMITIVES === 
+    async def prim_exit(): pass
+    async def prim_dup():
+        x = await piles.pop()
+        await piles.push(x)
+        await piles.push(x)
+    async def prim_drop(): await piles.pop()
+    async def prim_swap():
+        a = await piles.pop(); b = await piles.pop()
+        await piles.push(a); await piles.push(b)
+    async def prim_over():
+        a = await piles.pop(); b = await piles.pop()
+        await piles.push(b); await piles.push(a); await piles.push(b)
+    async def prim_rot():
+        a = await piles.pop(); b = await piles.pop(); c = await piles.pop()
+        await piles.push(a); await piles.push(c); await piles.push(b)
+    async def prim_2dup():
+        a = await piles.pop(); b = await piles.pop()
+        await piles.push(b); await piles.push(a); await piles.push(b); await piles.push(a)
+    async def prim_2drop(): await piles.pop(); await piles.pop()
+    async def prim_nip():
+        a = await piles.pop(); await piles.pop()
+        await piles.push(a)
+    async def prim_tuck():
+        a = await piles.pop(); b = await piles.pop()
+        await piles.push(a); await piles.push(b); await piles.push(a)
+
+    async def prim_add(): await piles.push(await piles.pop() + await piles.pop())
+    async def prim_sub():
+        b = await piles.pop(); a = await piles.pop()
+        await piles.push(a - b)
+    async def prim_mul(): await piles.push(await piles.pop() * await piles.pop())
+    async def prim_div():
+        b = await piles.pop(); a = await piles.pop()
+        if b == 0: raise ValueError("div/0")
+        await piles.push(a // b)
+    async def prim_mod():
+        b = await piles.pop(); a = await piles.pop()
+        if b == 0: raise ValueError("mod/0")
+        await piles.push(a % b)
+    async def prim_negate(): await piles.push(-await piles.pop())
+    async def prim_abs(): await piles.push(abs(await piles.pop()))
+
+    async def prim_lt():
+        b = await piles.pop(); a = await piles.pop()
+        await piles.push(1 if a < b else 0)
+    async def prim_gt():
+        b = await piles.pop(); a = await piles.pop()
+        await piles.push(1 if a > b else 0)
+    async def prim_eq():
+        b = await piles.pop(); a = await piles.pop()
+        await piles.push(1 if a == b else 0)
+    async def prim_zless():
+        a = await piles.pop()
+        await piles.push(1 if a < 0 else 0)
+    async def prim_zequal():
+        a = await piles.pop()
+        await piles.push(1 if a == 0 else 0)
+
+    async def prim_fetch(): await piles.push(mem.wpeek(await piles.pop()))
+    async def prim_store():
+        addr = await piles.pop(); val = await piles.pop()
+        mem.wpoke(addr, val)
+    async def prim_cfetch(): await piles.push(mem.cpeek(await piles.pop()))
+    async def prim_cstore():
+        addr = await piles.pop(); val = await piles.pop()
+        mem.cpoke(addr, val & 0xFF)
+    async def prim_fetchp():
+        addr = await piles.pop()
+        await piles.push(mem.wpeek(addr) + await piles.pop())
+    async def prim_storep():
+        addr = await piles.pop(); val = await piles.pop()
+        mem.wpoke(addr, mem.wpeek(addr) + val)
+
+    async def prim_dot(): print(await piles.pop(), end=' ')
+    async def prim_cr(): print()
+    async def prim_emit():
+        code = await piles.pop()
+        print(chr(code & 0xFF), end='')
+    async def prim_key():
+        try:
+            ch = input()
+            await piles.push(ord(ch[0]) if ch else 0)
+        except:
+            await piles.push(0)
+    async def prim_space(): print(" ", end='')
+    async def prim_spaces():
+        n = await piles.pop()
+        for _ in range(n): print(" ", end='')
+
+    async def prim_lit():
+        val = mem.wpeek(mem.ip)
+        mem.ip += 4
+        await piles.push(val)
+    async def prim_branch(): mem.ip = mem.wpeek(mem.ip)
+    async def prim_zbranch():
+        target = mem.wpeek(mem.ip)
+        mem.ip += 4
+        if await piles.pop() == 0:
+            mem.ip = target
+
+    async def prim_and():
+        b = await piles.pop(); a = await piles.pop()
+        await piles.push(a & b)
+    async def prim_or():
+        b = await piles.pop(); a = await piles.pop()
+        await piles.push(a | b)
+    async def prim_xor():
+        b = await piles.pop(); a = await piles.pop()
+        await piles.push(a ^ b)
+    async def prim_not():
+        a = await piles.pop()
+        await piles.push(~a & 0xFFFFFFFF)
+
+    async def prim_do():
+        limit = await piles.pop(); index = await piles.pop()
+        mem.rp -= 8
+        mem.wpoke(mem.rp, index)
+        mem.wpoke(mem.rp + 4, limit)
+    async def prim_loop():
+        mem.wpoke(mem.rp, mem.wpeek(mem.rp) + 1)
+        if mem.wpeek(mem.rp) < mem.wpeek(mem.rp + 4):
+            mem.ip += mem.wpeek(mem.ip - 4)
+        else:
+            mem.ip += 4; mem.rp += 8
+    async def prim_ploop():
+        incr = await piles.pop()
+        mem.wpoke(mem.rp, mem.wpeek(mem.rp) + incr)
+        if mem.wpeek(mem.rp) < mem.wpeek(mem.rp + 4):
+            mem.ip += mem.wpeek(mem.ip - 4)
+        else:
+            mem.ip += 4; mem.rp += 8
+    async def prim_i(): await piles.push(mem.wpeek(mem.rp))
+    async def prim_j(): await piles.push(mem.wpeek(mem.rp + 16))
+
+    async def prim_words():
+        addr = mem.latest; count = 0
+        while addr:
+            link = mem.wpeek(addr); addr += 4
+            fl = mem.cpeek(addr); length = fl & 0x7F; immediate = bool(fl & 0x80)
+            addr += 1
+            name = "".join(chr(mem.cpeek(addr + i)) for i in range(length))
+            addr += length + (4 - addr % 4) % 4
+            print(f"{name:15} {'!' if immediate else ' '}", end='  ')
+            count += 1
+            if count % 5 == 0: print()
+            addr = link
+        print()
+
+    async def prim_dotss():
+        print(f"<{(mem.SP0 - mem.sp) >> 2}:", end=' ')
+        i = mem.sp
+        while i < mem.SP0:
+            print(mem.wpeek(i), end=' ')
+            i += 4
+        print(">")
+
+    async def prim_depth():
+        await piles.push((mem.SP0 - mem.sp) >> 2)
+
+    async def prim_min():
+        b = await piles.pop(); a = await piles.pop()
+        await piles.push(min(a, b))
+
+    async def prim_max():
+        b = await piles.pop(); a = await piles.pop()
+        await piles.push(max(a, b))
+
+    async def prim_tests():
+        import tests
+        await tests.run_all_tests()
+
+    async def prim_forget():
+        from dictionnaire import forget
+        word = ""
+        i = mem.sp
+        while i < mem.SP0:
+            c = mem.wpeek(i) & 0xFF
+            if c == 0: break
+            word += chr(c)
+            i += 4
+        forget(word)
+
+    async def prim_see():
+        from dictionnaire import see
+        word = ""
+        i = mem.sp
+        while i < mem.SP0:
+            c = mem.wpeek(i) & 0xFF
+            if c == 0: break
+            word += chr(c)
+            i += 4
+        see(word)
+
+    async def prim_hex(): mem.base = 16
+    async def prim_decimal(): mem.base = 10
+    async def prim_debug(): print(f"DEBUG: here={mem.here}, latest={mem.latest}, sp={mem.sp}")
+
+    dispatch = {
+        OP_EXIT: prim_exit, OP_DUP: prim_dup, OP_DROP: prim_drop,
+        OP_SWAP: prim_swap, OP_OVER: prim_over, OP_ROT: prim_rot,
+        OP_2DUP_P: prim_2dup, OP_2DROP_P: prim_2drop, OP_NIP: prim_nip, OP_TUCK: prim_tuck,
+        OP_ADD: prim_add, OP_SUB: prim_sub, OP_MUL: prim_mul,
+        OP_DIV: prim_div, OP_MOD: prim_mod, OP_NEGATE: prim_negate, OP_ABS: prim_abs,
+        OP_LT: prim_lt, OP_GT: prim_gt, OP_EQ: prim_eq, OP_ZLESS: prim_zless, OP_ZEQUAL: prim_zequal,
+        OP_FETCH: prim_fetch, OP_STORE: prim_store, OP_CFETCH: prim_cfetch, OP_CSTORE: prim_cstore,
+        OP_FETCHP: prim_fetchp, OP_STOREP: prim_storep,
+        OP_DOT: prim_dot, OP_CR: prim_cr, OP_EMIT: prim_emit, OP_KEY: prim_key,
+        OP_SPACE: prim_space, OP_SPACES: prim_spaces,
+        OP_LIT: prim_lit, OP_BRANCH: prim_branch, OP_ZBRANCH: prim_zbranch,
+        OP_AND: prim_and, OP_OR: prim_or, OP_XOR: prim_xor, OP_NOT: prim_not,
+        OP_DO: prim_do, OP_LOOP: prim_loop, OP_PLOOP: prim_ploop, OP_I: prim_i, OP_J: prim_j,
+        OP_WORDS: prim_words, OP_DOTSS: prim_dotss, OP_TESTS: prim_tests,
+        OP_DEPTH: prim_depth, OP_MIN: prim_min, OP_MAX: prim_max,
+        OP_FORGET: prim_forget, OP_SEE: prim_see,
+        OP_HEX: prim_hex, OP_DECIMAL: prim_decimal, OP_DEBUG: prim_debug,
+    }
+
+    mem.base = 10
+    mem.reset_memory()
+
+    print("\nChargement des primitives NIVEAU 0:")
+    print("  Stack: ", end='')
+    create("EXIT", OP_EXIT)
+    create("DUP", OP_DUP)
+    create("DROP", OP_DROP)
+    create("SWAP", OP_SWAP)
+    create("OVER", OP_OVER)
+    create("ROT", OP_ROT)
+    create("2DUP", OP_2DUP_P)
+    create("2DROP", OP_2DROP_P)
+    create("NIP", OP_NIP)
+    create("TUCK", OP_TUCK)
+
+    print("\n  Arithmetic: ", end='')
+    create("+", OP_ADD)
+    create("-", OP_SUB)
+    create("*", OP_MUL)
+    create("/", OP_DIV)
+    create("MOD", OP_MOD)
+    create("NEGATE", OP_NEGATE)
+    create("ABS", OP_ABS)
+
+    print("\n  Comparison: ", end='')
+    create("<", OP_LT)
+    create(">", OP_GT)
+    create("=", OP_EQ)
+    create("0<", OP_ZLESS)
+    create("0=", OP_ZEQUAL)
+
+    print("\n  Memory: ", end='')
+    create("@", OP_FETCH)
+    create("!", OP_STORE)
+    create("C@", OP_CFETCH)
+    create("C!", OP_CSTORE)
+    create("+@", OP_FETCHP)
+    create("+!", OP_STOREP)
+
+    print("\n  I/O: ", end='')
+    create(".", OP_DOT)
+    create("CR", OP_CR)
+    create("EMIT", OP_EMIT)
+    create("SPACE", OP_SPACE)
+    create("SPACES", OP_SPACES)
+
+    print("\n  Bit ops: ", end='')
+    create("AND", OP_AND)
+    create("OR", OP_OR)
+    create("XOR", OP_XOR)
+    create("NOT", OP_NOT)
+
+    print("\n  Control: ", end='')
+    create("IF",     OP_ZBRANCH, immediate=True)
+    create("ELSE",   OP_BRANCH,  immediate=True)
+    create("THEN",   MARK_THEN,  immediate=True)
+    create("BEGIN",  MARK_BEGIN, immediate=True)
+    create("UNTIL",  OP_ZBRANCH, immediate=True)
+    create("AGAIN",  OP_BRANCH,  immediate=True)
+    create("DO",     MARK_DO,    immediate=True)
+    create("LOOP",   MARK_LOOP,  immediate=True)
+    create("+LOOP",  MARK_LOOP,  immediate=True)
+
+    print("\n  Loops: ", end='')
+    create("I", OP_I)
+    create("J", OP_J)
+
+    print("\n  Debug & System: ", end='')
+    create("WORDS", OP_WORDS)
+    create(".S", OP_DOTSS)
+    create("DEPTH", OP_DEPTH)
+    create("TESTS", OP_TESTS)
+    create("FORGET", OP_FORGET)
+    create("SEE", OP_SEE)
+    create("DEBUG", OP_DEBUG)
+    create("HEX", OP_HEX)
+    create("DECIMAL", OP_DECIMAL)
+    create("LITERAL", OP_LIT, immediate=True)
+    create("MIN", OP_MIN)
+    create("MAX", OP_MAX)
+
+    print(f"\nfin de {version[0]} v{version[1]} – système Forth complet avec comparaisons")
+    __core_already_done = True
+
+# fin du "core" version "31"

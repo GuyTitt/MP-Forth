@@ -1,0 +1,31 @@
+# début du "boot" version "9"
+import gc
+
+print("boot.py v9 – LANCEUR PUR – AFFICHAGE VERSIONS UNIQUEMENT")
+
+def afficher_versions():
+    print("\n" + "="*72)
+    print(" VERSIONS DES MODULES – LANCEUR PUR (boot.py v9)")
+    print("="*72)
+    
+    modules = ['memoire', 'dictionnaire', 'piles', 'core', 'tests', 'options', 'main']
+    
+    for nom in modules:
+        try:
+            with open(nom + '.py', 'r') as f:
+                for ligne in f:
+                    if 'version' in ligne and '=' in ligne:
+                        partie = ligne.split('=', 1)[1].strip()
+                        if partie.startswith('('):
+                            contenu = partie[1:-1]
+                            fichier, num = [x.strip().strip("'\"") for x in contenu.split(',', 1)]
+                            print(f"  {fichier:25} → v{num:<6} [racine]")
+                        break
+        except:
+            print(f"  {nom}.py{' ':21} → [introuvable]")
+    print("="*72)
+
+afficher_versions()
+print("Boot terminé – lancement de main.py")
+gc.collect()
+# fin du "boot" version "9"

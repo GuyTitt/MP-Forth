@@ -1,0 +1,37 @@
+# début du "boot" version "15"
+version = ('boot.py', 15)
+
+print("\n" + "="*72)
+print(" FORTH ESP32-S3 – CHARGEMENT DES MODULES")
+print("="*72)
+
+modules = [
+    'constantes.json',
+    'boot.py', 'main.py',  'memoire.py', 'piles.py', 'dictionnaire.py',
+    'core.py','core_primitives.py','core_system.py','core_system1.py',
+    'words_level1.py', 
+    'tests.py'
+]
+
+for nom in modules:
+    try:
+        with open(nom, 'r') as f:
+            for ligne in f:
+                if 'version' in ligne and '=' in ligne:
+                    partie = ligne.split('=', 1)[1].strip()
+                    if partie.startswith('('):
+                        contenu = partie[1:-1]  # enlève les parenthèses
+                        fichier, num = [x.strip().strip("'\"") for x in contenu.split(',', 1)]
+                        print(f"  {fichier:25} → v{num:<6} [racine]")
+                    else:
+                        print(f"  {nom:25} → présent")
+                    break
+            else:
+                print(f"  {nom:25} → présent")
+    except OSError:
+        print(f"  {nom:25} → [introuvable]")
+
+print("="*72)
+print("Lancement du REPL Forth...\n")
+
+# fin du "boot" version "15"

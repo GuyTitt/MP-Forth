@@ -1,0 +1,125 @@
+# début du "core_system" version "32"
+version = ('core_system.py', 32)
+
+try:
+    __core_sys_done
+except NameError:
+    __core_sys_done = False
+
+if not __core_sys_done:
+    from memoire import mem
+    from dictionnaire import create
+    from piles import piles
+    import uasyncio as asyncio
+
+    # Import des opcodes et dispatch depuis core_primitives
+    from core_primitives import (
+        dispatch, OP_EXIT, OP_LIT, OP_ZBRANCH, OP_BRANCH,
+        MARK_THEN, MARK_BEGIN, MARK_DO, MARK_LOOP,
+        OP_WORDS, OP_DOTSS, OP_DEPTH, OP_TESTS, OP_FORGET, OP_SEE,
+        OP_DEBUG, OP_HEX, OP_DECIMAL, OP_MIN, OP_MAX
+    )
+
+    async def prim_words():
+        addr = mem.latest; count = 0
+        while addr:
+            link = mem.wpeek(addr); addr += 4
+            fl = mem.cpeek(addr); length = fl & 0x7F; immediate = bool(fl & 0x80)
+            addr += 1
+            name = "".join(chr(mem.cpeek(addr + i)) for i in range(length))
+            addr += length + (4 - addr % 4) % 4
+            print(f"{name:15} {'!' if immediate else ' '}", end='  ')
+            count += 1
+            if count % 5 == 0: print()
+            addr = link
+        print()
+
+    async def prim_dotss():
+        print(f"<{(mem.SP0 - mem.sp) >> 2}:", end=' ')
+        i = mem.sp
+        while i < mem.SP0:
+            print(mem.wpeek(i), end=' ')
+            i += 4
+        print(">")
+
+    async def prim_depth():
+        await piles.push((mem.SP0 - mem.sp) >> 2)
+
+    async def prim_tests():
+        import tests
+        await tests.run_all_tests()
+
+    async def prim_forget():
+        from dictionnaire import forget
+        word = ""
+        i = mem.sp
+        while i < mem.SP0:
+            c = mem.wpeek(i) & 0xFF
+            if c == 0: break
+            word += chr(c)
+            i += 4
+        forget(word)
+
+    async def prim_see():
+        from dictionnaire import see
+        word = ""
+        i = mem.sp
+        while i < mem.SP0:
+            c = mem.wpeek(i) & 0xFF
+            if c == 0: break
+            word += chr(c)
+            i += 4
+        see(word)
+
+    async def prim_hex(): mem.base = 16
+    async def prim_decimal(): mem.base = 10
+    async def prim_debug(): print(f"DEBUG: here={mem.here:#x} latest={mem.latest:#x} sp={mem.sp:#x}")
+
+    async def prim_min():
+        b = await piles.pop(); a = await piles.pop()
+        await piles.push(min(a, b))
+    async def prim_max():
+        b = await piles.pop(); a = await piles.pop()
+        await piles.push(max(a, b))
+
+    # Ajout au dispatch global
+    dispatch.update({
+        OP_WORDS: prim_words, OP_DOTSS: prim_dotss, OP_DEPTH: prim_depth,
+        OP_TESTS: prim_tests, OP_FORGET: prim_forget, OP_SEE: prim_see,
+        OP_DEBUG: prim_debug, OP_HEX: prim_hex, OP_DECIMAL: prim_decimal,
+        OP_MIN: prim_min, OP_MAX: prim_max
+    })
+
+    mem.base = 10
+    mem.reset_memory()
+
+    print("\nCréation dictionnaire système:")
+    create("EXIT", OP_EXIT, immediate=True)
+    create("DUP", 1); create("DROP", 2); create("SWAP", 3); create("OVER", 4); create("ROT", 5)
+    create("2DUP", 34); create("2DROP", 35); create("NIP", 36); create("TUCK", 37)
+    create("+", 6); create("-", 7); create("*", 8); create("/", 9); create("MOD", 10)
+    create("NEGATE", 11); create("ABS", 12)
+    create("<", 111); create(">", 112); create("=", 113); create("0<", 114); create("0=", 115); create("U<", 119)
+    create("@", 13); create("!", 14); create("C@", 15); create("C!", 16); create("+@", 38); create("+!", 39)
+    create(".", 17); create("CR", 18); create("EMIT", 19); create("SPACE", 40); create("SPACES", 41)
+    create("AND", 42); create("OR", 43); create("XOR", 44); create("NOT", 45)
+    create("IF", OP_ZBRANCH, immediate=True)
+    create("ELSE", OP_BRANCH, immediate=True)
+    create("THEN", MARK_THEN, immediate=True)
+    create("BEGIN", MARK_BEGIN, immediate=True)
+    create("UNTIL", OP_ZBRANCH, immediate=True)
+    create("AGAIN", OP_BRANCH, immediate=True)
+    create("DO", MARK_DO, immediate=True)
+    create("LOOP", MARK_LOOP, immediate=True)
+    create("+LOOP", MARK_LOOP, immediate=True)
+    create("I", 109); create("J", 110)
+    create("WORDS", OP_WORDS); create(".S", OP_DOTSS); create("DEPTH", OP_DEPTH)
+    create("TESTS", OP_TESTS); create("FORGET", OP_FORGET); create("SEE", OP_SEE)
+    create("DEBUG", OP_DEBUG); create("HEX", OP_HEX); create("DECIMAL", OP_DECIMAL)
+    create("LITERAL", OP_LIT, immediate=True)
+    create("MIN", OP_MIN); create("MAX", OP_MAX)
+
+    print("core_system.py v32 chargé – dictionnaire complet")
+    __core_sys_done = True
+
+# fin du "core_system" version "32"

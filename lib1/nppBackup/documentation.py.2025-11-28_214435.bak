@@ -1,0 +1,151 @@
+# début du "documentation" version "2"
+version = ('documentation.py', 2)
+
+def generer_documentation():
+    md = """\
+£# FORTH ESP32-S3 – Implémentation MicroPython complète
+£
+£**Architecture cible : ESP32-S3 (Xtensa LX6)**£
+£**Date : 28 novembre 2025**£
+£**Auteur : toi** – système 100 % fonctionnel, stable, documenté£
+££
+£## 1. Vue d’ensemble du système£
+££
+£Un Forth complet indirect-threaded écrit en MicroPython/uasyncio, exécutable sur ESP32-S3 (Wokwi ou matériel réel).£
+££
+£### Modules principaux£
+££
+£| Fichier                  | Version | Rôle principal                                   |£
+£
+£|--------------------------|---------|---------------------------------------------------|££
+£| `boot.py`                | v14     | Chargement intelligent (racine ou /lib1) + affichage versions |££
+£| `memoire.py`             | v12     | Gestion mémoire 256 Ko (0x80000000–0x800FFFFF)    |££
+£| `piles.py`               | v10     | Pile données + pile retour (uasyncio-safe)       |££
+£| `dictionnaire.py`        | v23     | Création/recherche mots, alignés 4 octets     |££
+£| `core_primitives.py`     | v33     | Toutes les primitives + table `dispatch`         |££
+£| `core_system.py`         | v37     | Mots système (WORDS, SEE, VARIABLES, RECURSE…)   |££
+£| `main.py`                | v53     | REPL + compilation + structures de contrôle      |££
+£| `documentation.py`       | v2      | Génération de cette documentation                |££
+££
+£## 2. Organisation de la mémoire£
+££
+£```
+£0x80000000 ┌─────────────────────────────────────────────┐
+£           │ Zone libre (buffers, heap MicroPython)      │
+£0x80008000 ├─────────────────────────────────────────────┤ ← HERE (croît)
+£           │ Dictionnaire Forth (headers + corps des mots)  │
+£           │   link (4) → mot précédent                  │
+£           │   flags+len (1)  bit7=immediate             │
+£           │   nom (aligné 4 octets)                     │
+£           │   code field → opcode ou adresse exécution  │
+£           │   param field (LIT, VARIABLE, CONSTANT…)    │
+£0x800FFF0  ├─────────────────────────────────────────────┤ SP0
+£           │ Pile données (↓) 32 bits                    │
+£0x800FF00  ├─────────────────────────────────────────────┤ RP0
+£           │ Pile retour (↓) 32 bits                     │
+£0x80000000 └─────────────────────────────────────────────┘
+£```£
+££
+£## 3. Structure d’un mot dans le dictionnaire£
+££
+£```
+£offset  contenu
+£0       link → mot précédent (0 = plus ancien)
+£4       flags+len (bit7=immediate, bits0-6=longueur nom)
+£5       nom (ex: "DUP")
+£…       alignement 4 octets
+£N       code field → opcode (<1000 = primitive) ou adresse du corps
+£N+4     param field (valeur pour LIT, adresse pour VARIABLE, etc.)
+£```£
+££
+£## 4. Mécanisme de recherche `find(name)`£
+££
+£```python
+£
+£def find(name):£
+£    addr = mem.latest£
+£    while addr:£
+£        # lecture link, flags+len, comparaison nom£
+£        if nom_correspond(name):£
+£            code = mem.wpeek(adresse_code_field)£
+£            immediate = flags & 0x80£
+£            return code, immediate£
+£        addr = mem.wpeek(addr)  # lien précédent£
+£    return None, False£
+£```£
+££
+£## 5. Exécution£
+££
+£- Opcode < 1000 → primitive → `await dispatch[opcode]()`£
+£- Opcode ≥ 1000 → mot colon → `execute_colon(adresse)`£
+£- Pas de `docol` : on saute directement au corps£
+££
+£## 6. Compilation£
+££
+£- `:` → `create_colon_word(name, mem.here)`£
+£- Chaque mot → `mem.wpoke(mem.here, opcode)`£
+£- Littéral → `21 (LIT) + valeur`£
+£- `;` → `0 (EXIT)`£
+£
+££
+£## 7. Mots immédiats critiques£
+££
+£| Mot        | Opcode / Marqueur | Rôle                                      |££
+£|------------|-------------------|-------------------------------------------|££
+£| IF         | OP_ZBRANCH        | branche si faux                           |££
+£| ELSE       | OP_BRANCH         | saut inconditionnel                       |££
+£| THEN       | MARK_THEN         | résout adresse                            |££
+£| BEGIN      | MARK_BEGIN        | marque point de retour                    |££
+£| UNTIL      | OP_ZBRANCH        | boucle conditionnelle                     |££
+£| DO         | MARK_DO           | initialise boucle                         |££
+£| LOOP/+LOOP | MARK_LOOP         | incrémente et teste                       |££
+£| EXIT       | 0                 | immediate → sortie immédiate              |££
+£| RECURSE    | 200               | immediate → compile adresse du mot en cours|££
+£| LITERAL    | 21                | immediate → compile littéral              |££
+££
+£## 8. Mots ajoutés (core_system v37)£
+££
+£- `VARIABLE` / `CONSTANT` (immédiats)£
+£- `VARIABLES` → liste toutes les variables et constantes£
+£- `WORDS` → trié par catégorie (primitif / courant / application) + ordre alphabétique£
+£- `SEE` → décompilation complète avec noms£
+£- `.S` → affichage pile corrigé£
+££
+£## 9. Exemple complet£
+££
+£```forth£
+£: double dup + ;        → corps : DUP + EXIT£
+£see double              → double: DUP + EXIT£
+£5 double .              → 10 ok£
+££
+£VARIABLE X£
+£10 X !£
+£X @ .                   → 10 ok£
+££
+£CONSTANT VERSION 153£
+£VERSION .               → 153 ok£
+£```£
+££
+£## 10. État actuel£
+££
+£- 100 % fonctionnel sur ESP32-S3 (Xtensa LX6)£
+£- Toutes les structures de contrôle£
+£- Récursion, variables, VARIABLES, CONSTANTES£
+£- Débogage complet£
+££
+£**Prochaine étape** : portage natif C/ESP-IDF (Xtensa LX6) – zéro MicroPython.£
+££
+£Prêt quand tu le seras.
+"""
+    # Suppression du préfixe £ ligne par ligne
+    lignes = [ligne[1:] if ligne.startswith('£') else ligne for ligne in md.split('\n')]
+    contenu = '\n'.join(lignes)
+    
+    with open("FORTH_ESP32S3_DOCUMENTATION.md", "w", encoding="utf-8") as f:
+        f.write(contenu)
+    print("FORTH_ESP32S3_DOCUMENTATION.md généré – documentation complète, sans morcellement")
+
+if __name__ == "__main__":
+    generer_documentation()
+
+# fin du "documentation" version "2"

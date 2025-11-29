@@ -1,0 +1,9 @@
+# début du "core" version "33"
+version = ('core.py', 33)
+
+print("Chargement core en deux parties...")
+import core_primitives
+import core_system
+
+print(f"fin de {version[0]} v{version[1]} – core splitté avec succès")
+# fin du "core" version "33"

@@ -1,0 +1,130 @@
+# début du "dictionnaire" version "16"
+from memoire import mem
+
+TRACE = False  # Désactiver pour version de production
+
+def trace(msg):
+    if TRACE:
+        print(f"[DICT] {msg}")
+
+def align_here():
+    """Aligner 'here' sur la prochaine adresse multiple de 4"""
+    pad = mem.here % 4
+    if pad:
+        mem.here += 4 - pad
+
+def create(name, code_addr, immediate=False):
+    """
+    Créer une nouvelle entrée de dictionnaire (pour les primitives).
+    Format du header :
+    +0  (4 bytes) : link
+    +4  (1 byte)  : flags
+    +5  (N bytes) : nom
+    +aligned      : code_addr (4 bytes)
+    """
+    trace(f"create('{name}', code_addr={code_addr}, immediate={immediate})")
+    align_here()
+    header_start = mem.here
+    
+    # Chaîne de liens
+    mem.wpoke(mem.here, mem.latest)
+    mem.here += 4
+    
+    # Flags + longueur
+    flags = len(name) | (0x80 if immediate else 0)
+    mem.cpoke(mem.here, flags)
+    mem.here += 1
+    
+    # Nom
+    for c in name.upper():
+        mem.cpoke(mem.here, ord(c))
+        mem.here += 1
+    
+    # Aligner
+    align_here()
+    
+    # code_addr
+    mem.wpoke(mem.here, code_addr)
+    mem.here += 4
+    
+    mem.latest = header_start
+    trace(f"  header at {header_start}, code_addr at {mem.here - 4}")
+
+def create_colon_word(name, code_start):
+    """
+    Créer l'en-tête d'une définition Forth (définie par l'utilisateur avec :).
+    Retourne immédiatement après avoir créé le header.
+    Le code compilé sera écrit à partir de code_start.
+    """
+    trace(f"create_colon_word('{name}', code_start={code_start})")
+    align_here()
+    header_start = mem.here
+    
+    # Chaîne de liens
+    mem.wpoke(mem.here, mem.latest)
+    mem.here += 4
+    
+    # Flags + longueur
+    flags = len(name)  # Pas immédiat par défaut
+    mem.cpoke(mem.here, flags)
+    mem.here += 1
+    
+    # Nom
+    for c in name.upper():
+        mem.cpoke(mem.here, ord(c))
+        mem.here += 1
+    
+    # Aligner
+    align_here()
+    
+    # code_addr = l'adresse où le code compilé commence
+    mem.wpoke(mem.here, code_start)
+    mem.here += 4
+    
+    mem.latest = header_start
+    trace(f"  header at {header_start}, code will be at {code_start}")
+
+def find(word):
+    """
+    Chercher un mot dans le dictionnaire.
+    Retourne (opcode_value, immediate_flag) ou (None, False) si non trouvé.
+    """
+    w = word.upper()
+    trace(f"find('{w}')")
+    addr = mem.latest
+    
+    while addr:
+        header_addr = addr
+        
+        # Link
+        link = mem.wpeek(addr)
+        addr += 4
+        
+        # Flags
+        fl = mem.cpeek(addr)
+        length = fl & 0x7F
+        immediate = bool(fl & 0x80)
+        addr += 1
+        
+        # Nom
+        name = ""
+        for i in range(length):
+            name += chr(mem.cpeek(addr + i))
+        addr += length
+        
+        # Align
+        addr += (4 - addr % 4) % 4
+        
+        if name == w:
+            opcode_value = mem.wpeek(addr)
+            trace(f"  FOUND '{w}' -> {opcode_value}")
+            return opcode_value, immediate
+        
+        addr = link
+    
+    trace(f"  NOT FOUND: '{w}'")
+    return None, False
+
+version = ('dictionnaire.py', 16)
+print(f"dictionnaire.py v{version[1]} – dictionnaire stable")
+# fin du "dictionnaire" version "16"

@@ -1,0 +1,58 @@
+# début du "boot" version "18"
+version = ('boot.py', 18)
+
+import os
+
+# ================================================
+# DÉTECTION AUTOMATIQUE DU DOSSIER
+# ================================================
+try:
+    os.mkdir('lib1')
+    os.rmdir('lib1')
+    MON_DOSSIER = ""                     # Wokwi
+    print("Environnement Wokwi détecté → modules à la racine")
+except OSError:
+    MON_DOSSIER = "lib1/"                # Matériel réel
+    print("Environnement matériel détecté → modules dans /lib1/")
+
+#")
+
+# Variable globale simple, importable partout
+MON_DOSSIER = MON_DOSSIER
+
+print("\n" + "="*72)
+print(" FORTH ESP32-S3 – CHARGEMENT DES MODULES")
+print(f" Dossier des modules → '{MON_DOSSIER or 'racine'}'")
+print("="*72)
+
+modules = [
+    'constantes.json', 'boot.py', 'main.py',
+    'memoire.py', 'piles.py', 'dictionnaire.py',
+    'core.py', 'core_primitives.py',
+    'core_system.py', 'core_system1.py',
+    'words_level1.py', 'tests.py'
+]
+
+for nom in modules:
+    chemin = MON_DOSSIER + nom if MON_DOSSIER else nom
+    try:
+        with open(chemin) as f:
+            for ligne in f:
+                if 'version' in ligne and '=' in ligne:
+                    partie = ligne.split('=',1)[1].strip()
+                    if partie.startswith('('):
+                        f_name, v_num = eval(partie)
+                        src = "lib1" if MON_DOSSIER else "racine"
+                        print(f"  {f_name:25} → v{v_num:<6} [{src}]")
+                    else:
+                        print(f"  {nom:25} → présent")
+                    break
+            else:
+                print(f"  {nom:25} → présent")
+    except OSError:
+        print(f"  {nom:25} → [introuvable]")
+
+print("="*72)
+print("Lancement du REPL Forth...\n")
+
+# fin du "boot" version "18"

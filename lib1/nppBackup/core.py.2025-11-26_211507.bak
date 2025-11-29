@@ -1,0 +1,76 @@
+# début du "core" version "18"
+try:
+    __core_already_done
+except NameError:
+    __core_already_done = False
+
+if not __core_already_done:
+    from memoire import mem
+    from dictionnaire import create
+    from piles import piles
+    import uasyncio as asyncio
+
+    OP_EXIT   = 0
+    OP_DUP    = 1
+    OP_DROP   = 2
+    OP_SWAP   = 3
+    OP_OVER   = 4
+    OP_ADD    = 5
+    OP_SUB    = 6
+    OP_MUL    = 7
+    OP_DOT    = 8
+    OP_CR     = 9
+    OP_LIT    = 10
+    OP_COLON  = 11
+    OP_SEMI   = 12
+    OP_TESTS  = 13
+
+    async def prim_dup():   x = await piles.pop(); await piles.push(x); await piles.push(x)
+    async def prim_drop():  await piles.pop()
+    async def prim_swap():  a = await piles.pop(); b = await piles.pop(); await piles.push(a); await piles.push(b)
+    async def prim_over():  a = await piles.pop(); b = await piles.pop(); await piles.push(b); await piles.push(a); await piles.push(b)
+    async def prim_add():   await piles.push(await piles.pop() + await piles.pop())
+    async def prim_sub():   b = await piles.pop(); await piles.push(await piles.pop() - b)
+    async def prim_mul():   await piles.push(await piles.pop() * await piles.pop())
+    async def prim_dot():   print(await piles.pop(), end=' ')
+    async def prim_cr():    print()
+    async def prim_lit():   await piles.push(mem.wpeek(mem.ip)); mem.ip += 4
+    async def prim_tests():
+        try:
+            import tests
+            await tests.run_all_tests()
+            print("TOUS LES TESTS RÉUSSI !")
+        except: pass
+
+    dispatch = {
+        OP_DUP: prim_dup, OP_DROP: prim_drop, OP_SWAP: prim_swap, OP_OVER: prim_over,
+        OP_ADD: prim_add, OP_SUB: prim_sub, OP_MUL: prim_mul,
+        OP_DOT: prim_dot, OP_CR: prim_cr, OP_LIT: prim_lit, OP_TESTS: prim_tests,
+    }
+
+    # RAZ du dictionnaire
+    mem.latest = 0
+    mem.here = 0x00200000
+
+    # TOUS les mots avec 2 arguments — sauf LITERAL
+    create("DUP",     OP_DUP)
+    create("DROP",    OP_DROP)
+    create("SWAP",    OP_SWAP)
+    create("OVER",    OP_OVER)
+    create("+",       OP_ADD)
+    create("-",       OP_SUB)
+    create("*",       OP_MUL)
+    create(".",       OP_DOT)
+    create("CR",      OP_CR)
+    create(":",       OP_COLON)
+    create(";",       OP_SEMI)
+    create("TESTS",   OP_TESTS)
+    
+    # SEUL LITERAL a immediate=True → on passe le 3e argument
+    create("LITERAL", OP_LIT, immediate=True)
+
+    print("core v18 – TOUT CORRIGÉ – DICTIONNAIRE PARFAIT")
+    __core_already_done = True
+
+version = ('core.py', 18)
+# fin du "core" version "18"

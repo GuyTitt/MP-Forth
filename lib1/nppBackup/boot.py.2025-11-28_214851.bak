@@ -1,0 +1,58 @@
+# début du "boot" version "17"
+version = ('boot.py', 17)
+
+import os
+
+# ================================================
+# DÉTECTION AUTOMATIQUE DU DOSSIER DES MODULES
+# ================================================
+try:
+    os.mkdir('lib1')
+    os.rmdir('lib1')
+    monDossier = ""                     # Wokwi → tout à la racine
+    print("Environnement Wokwi détecté → modules à la racine")
+except OSError:
+    monDossier = "lib1/"                # Matériel réel → tout dans /lib1
+    print("Environnement matériel détecté → modules dans /lib1/")
+
+# Export global propre et sûr
+globals()['monDossier'] = monDossier
+
+print("\n" + "="*72)
+print(" FORTH ESP32-S3 – CHARGEMENT DES MODULES")
+print(" Dossier modules :", monDossier if monDossier else "racine")
+print("="*72)
+
+modules = [
+    'constantes.json',
+    'boot.py', 'main.py',
+    'memoire.py', 'piles.py', 'dictionnaire.py',
+    'core.py', 'core_primitives.py',
+    'core_system.py', 'core_system1.py',
+    'words_level1.py', 'tests.py'
+]
+
+for nom in modules:
+    chemin = monDossier + nom if monDossier else nom
+    try:
+        with open(chemin, 'r') as f:
+            for ligne in f:
+                if 'version' in ligne and '=' in ligne:
+                    partie = ligne.split('=', 1)[1].strip()
+                    if partie.startswith('('):
+                        contenu = partie[1:-1]
+                        fichier, num = [x.strip().strip("'\"") for x in contenu.split(',', 1)]
+                        source = "lib1" if monDossier else "racine"
+                        print(f"  {fichier:25} → v{num:<6} [{source}]")
+                    else:
+                        print(f"  {nom:25} → présent")
+                    break
+            else:
+                print(f"  {nom:25} → présent")
+    except OSError:
+        print(f"  {nom:25} → [introuvable]")
+
+print("="*72)
+print("Lancement du REPL Forth...\n")
+
+# fin du "boot" version "17"

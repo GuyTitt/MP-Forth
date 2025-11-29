@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "author": "Anonymous maker",
+  "editor": "wokwi",
+  "parts": [
+    {
+      "id": "esp",
+      "type": "board-esp32-s3-devkitc-1",
+      "attrs": { "env": "micropython-20231227-v1.22.0", "flashSize": "8" }
+    }
+  ],
+  "connections": [ [ "esp:TX", "$serialMonitor:RX", "" ], [ "esp:RX", "$serialMonitor:TX", "" ] ]
+}
+-------------------
+Objectif-Final:
+- avoir un programme informatique fonctionnant sur microcontroleur
+- ce type de programme existe mais mon objectif n'est pas d'utiliser le programme, du moins dans un premier temps mais de le réaliser et comprendre son fonctionnement dans le détail.
+Développement du projet
+- initialement je voulais réaliser une implémentation du langague forth en nu-metal sur esp32. j'ai vu que le constructeur ne laissait pas cette possibilité si l'on voulait untiliser toutes les ressources de l'ESP32-S3N16R8 sur le kit de développement wroom.
+- de plus aucune simulation n'était suffisament performante toute avaient un défaut redibitoire
+- je pars donc sur un langage évolué que je connais (micropython) dans lequel j'écris un programme de simulation de forth (style fig forth, eforth, esp32forth, punyforth...) dans une structure la plus proche d'une version assembleur sans utiliser les performances des structures python (collection, dict...) et des libraries ( regex... ). une plage mémoire sera attribué "à la machine python". pour y placer les macros, les data, les piles. 
+Python au départ aura les primitives de base , il pourra lire un tableau en mémoire contenant les macros pour augmenter son vocabulaire puis il passera la main à un repl pour obtenir des macros pour réaliser le programme applicatif ou effectuer des tests.
+les tests seront fait sur wokwi en ligne puis sur un composant réél sur le composant réél le tableau en ascii disparaitra laissant place à un tableau binaire résultat de la compilation.
+- dans un troisième temps tout sera traduit en assembleur et compilé le programme python ne fera que lancer le programme assembleur puisqu'on ne sait pas faire un vrai boot en assembleur pur.
+est-ce réaliste ? Peux tu le détailler, le compléter et améliorer ce projet ?
+
+---------------------------
+/lib1/
+   constantes.json
+   memoire.py
+   dictionnaire.py      ← nouveau cœur Forth
+   primitives.py
+   interpreteur.py
+   mots_forth.py        ← CREATE , [ ] LITERAL etc.
+main.py
+----
+Je t'ai transmis  13 fichiers.
+
+J'ai des consignes générales à te donner :
+
+1) chaque fichier a un numéro de version à placer en commentaire en début et en fin de fichier.
+
+Tu incrémente ce numéro à la moindre modification dans le fichier. Cela garanti l'exécution des bon fichiers. Un module affiche dans la console de wokwi le numéro de version de chaque fichier. comme cela quand je te renvoie le contenu de la console il n'y a pas de confusion possible. A la fin du fichier le numéro permet un classement efficace et permet de vérifier qu'il est complet.
+
+2) La programmation en micropython n'est pas le but, elle me permet de comprendre plus facilement le programme. En conséquence il ne faut pas utiliser les structures propre à python qui seront difficile à transcoder en assembleur esp32. Je souhaite que la mise au point se face sur wokwi et non sur le module final.
+
+3) ne pas me donner de bribes pour altérer un fichier. donne moi des fichiers complets à chaque changement. mais ne change pas de numéro si rien n'a été changé dans le fichier.
+
+OK ? 
