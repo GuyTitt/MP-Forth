@@ -7,8 +7,8 @@
 # ===============================================
 
 # Dossiers temporaires
-*/nppBackup/
-*/locaux/
+**/nppBackup/**
+**/locaux/**
 
 # Fichiers de log et de backup
 *.log
