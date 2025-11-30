@@ -1,8 +1,8 @@
 # FORTH ESP32-S3 – Implémentation MicroPython complète
 
-**Architecture cible : ESP32-S3 (Xtensa LX6)**
-**Date : 28 novembre 2025**
-**Auteur : toi** – système 100 % fonctionnel, stable, documenté
+- **Architecture cible : ESP32-S3 (Xtensa LX6)**
+- **Date : 28 novembre 2025**
+- **Auteur : 
 
 ## 1. Vue d’ensemble du système
 
@@ -120,14 +120,18 @@ X @ .                   → 10 ok
 CONSTANT VERSION 153
 VERSION .               → 153 ok
 ```
+## 10. Attentes de la collaboration 
 
-## 10. État actuel
+**Stratégie de collaboration**
 
-- 100 % fonctionnel sur ESP32-S3 (Xtensa LX6)
-- Toutes les structures de contrôle
-- Récursion, variables, VARIABLES, CONSTANTES
-- Débogage complet
+Vous avez proposé la démarche suivante :
 
-**Prochaine étape** : portage natif C/ESP-IDF (Xtensa LX6) – zéro MicroPython.
+1 Mettre vos fichiers sur GitHub.
 
-Prêt quand tu le seras.
+2 Me donner le lien.
+
+3 Je lis, analyse, et vous donne des corrections ou améliorations.
+
+4 Vous placez ces fichiers corrigés dans Wokwi et testez.
+
+4 La boucle recommence.
