@@ -1,5 +1,5 @@
-# début du "core_system" version "41"
-version = ('core_system.py', 41)
+# début du "core_system" version "42"
+version = ('core_system.py', 42)
 
 try:
     from boot import MON_DOSSIER
@@ -31,11 +31,11 @@ if not __core_sys_done:
     OP_VARIABLES = 206
 
     async def prim_recurse():
-        """Compilation d’un appel récursif au mot en cours de définition"""
-        if mem.state == 0:                     # ← CORRIGÉ (double == supprimé)
+        """Compilation d'un appel récursif au mot en cours de définition"""
+        if mem.state == 0:
             print("? RECURSE hors définition")
             return
-        code_addr = mem.wpeek(mem.latest + 4)  # adresse du corps du mot courant
+        code_addr = mem.wpeek(mem.latest + 4)
         mem.wpoke(mem.here, code_addr)
         mem.here += 4
 
@@ -45,7 +45,7 @@ if not __core_sys_done:
         from dictionnaire import align_here
         align_here()
         create(name, OP_VARIABLE)
-        mem.wpoke(mem.here, 0)                 # valeur initiale = 0
+        mem.wpoke(mem.here, 0)
         mem.here += 4
         print(f"VARIABLE {name}")
 
@@ -61,8 +61,22 @@ if not __core_sys_done:
         print(f"CONSTANT {name} = {value}")
 
     async def prim_words():
-        """Affiche tous les mots triés par catégorie"""
-        prim, cour, app = [], [], []
+        """Affiche tous les mots triés par catégorie et ordre alphabétique"""
+        
+        # Catégories avec leurs opcodes
+        categories = {
+            "STACK": [1, 2, 3, 4, 5, 34, 35, 36, 37],  # DUP DROP SWAP OVER ROT 2DUP 2DROP NIP TUCK
+            "ARITHMETIC": [6, 7, 8, 9, 10, 11, 12],     # + - * / MOD NEGATE ABS
+            "COMPARISON": [111, 112, 113, 114, 115, 119], # < > = 0< 0= U<
+            "MEMORY": [13, 14, 15, 16, 38, 39],         # @ ! C@ C! +@ +!
+            "I/O": [17, 18, 19, 40, 41],                # . CR EMIT SPACE SPACES
+            "LOGIC": [42, 43, 44, 45],                  # AND OR XOR NOT
+            "CONTROL": [22, 23, 90, 91, 92, 109, 110, 996, 997, 998, 999],  # IF ELSE THEN BEGIN etc
+            "SYSTEM": [30, 116, 200, 201, 202, 203, 204, 205, 206],
+        }
+        
+        # Collecter tous les mots
+        all_words = {}
         addr = mem.latest
         while addr:
             link = mem.wpeek(addr)
@@ -71,19 +85,55 @@ if not __core_sys_done:
             length = fl & 0x7F
             immediate = bool(fl & 0x80)
             addr += 1
-            name = "".join(chr(mem.cpeek(addr + i)) for i in range(length))  # ← CORRIGÉ
+            name = "".join(chr(mem.cpeek(addr + i)) for i in range(length))
             code_addr = addr + length + (4 - (length + 1) % 4) % 4
             code = mem.wpeek(code_addr)
-            cat = prim if code < 1000 else (cour if code == OP_LIT else app)
-            cat.append(name + ("!" if immediate else ""))
+            
+            all_words[name] = {
+                'code': code,
+                'imm': immediate
+            }
             addr = link
-
-        for titre, liste in [("PRIMITIVES", prim), ("MOTS COURANTS", cour), ("APPLICATION", app)]:
-            if liste:
-                print(f"\n--- {titre} ---")
-                for w in sorted(liste):
+        
+        # Afficher par catégorie
+        for cat_name, opcodes in categories.items():
+            words_in_cat = []
+            for name, info in all_words.items():
+                if info['code'] in opcodes:
+                    marker = "!" if info['imm'] else ""
+                    words_in_cat.append(name + marker)
+            
+            if words_in_cat:
+                print(f"\n=== {cat_name} ===")
+                for w in sorted(words_in_cat):
                     print(f"{w:15}", end="")
                 print()
+        
+        # Mots définis par l'utilisateur (code >= 1000)
+        user_words = []
+        for name, info in all_words.items():
+            if info['code'] >= 1000:
+                marker = "!" if info['imm'] else ""
+                user_words.append(name + marker)
+        
+        if user_words:
+            print(f"\n=== USER DEFINED ===")
+            for w in sorted(user_words):
+                print(f"{w:15}", end="")
+            print()
+        
+        # Mots avancés (300+)
+        advanced = []
+        for name, info in all_words.items():
+            if 300 <= info['code'] < 1000:
+                marker = "!" if info['imm'] else ""
+                advanced.append(name + marker)
+        
+        if advanced:
+            print(f"\n=== ADVANCED ===")
+            for w in sorted(advanced):
+                print(f"{w:15}", end="")
+            print()
 
     async def prim_see():
         """Décompile le mot dont le nom (terminé par 0) est sur la pile"""
@@ -92,7 +142,7 @@ if not __core_sys_done:
             return
         word = ""
         sp = mem.sp
-        while sp < mem.SP0:
+        while sp < piles.SP0:
             c = mem.wpeek(sp) & 0xFF
             if c == 0:
                 break
@@ -130,7 +180,7 @@ if not __core_sys_done:
         depth = piles.depth()
         print(f"<{depth}>:", end=" ")
         i = mem.sp
-        while i < mem.SP0:
+        while i < piles.SP0:
             print(mem.wpeek(i), end=" ")
             i += 4
         print(">")
@@ -143,7 +193,7 @@ if not __core_sys_done:
         OP_WORDS:     prim_words,
         OP_SEE:       prim_see,
         OP_VARIABLES: prim_variables,
-        30:           prim_dot_s,          # .S
+        30:           prim_dot_s,
     })
 
     # Création effective des mots système
@@ -183,13 +233,13 @@ if not __core_sys_done:
     c("MIN", 150); c("MAX", 151)
     print()
 
-    # Chargement du vocabulaire étendu (CREATE/DOES> etc.)
+    # Chargement du vocabulaire étendu
     try:
         import core_system1
     except ImportError:
         print("core_system1.py absent – mots CREATE/DOES> non chargés")
 
-    print("core_system.py v41 chargé – RECURSE corrigé + parenthèse fermante")
+    print(f"core_system.py v{version[1]} chargé – WORDS classé par catégorie")
     __core_sys_done = True
 
-# fin du "core_system" version "41"
+# fin du "core_system" version "42"
