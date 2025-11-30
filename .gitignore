@@ -1,4 +1,4 @@
-# fichier .gitignore Version: 1.0
+# fichier .gitignore Version: 1.1
 
 # Objet : Décrire les dossiers et fichiers locaux inutiles sur github
 
@@ -16,4 +16,4 @@
 *.tmp
 temp.*
 
-# fichier .gitignore Version: 1.0
+# fichier .gitignore Version: 1.1
