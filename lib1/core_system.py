@@ -1,5 +1,5 @@
-# début du "core_system" version "42"
-version = ('core_system.py', 42)
+# début du "core_system" version "44"
+version = ('core_system.py', 44)
 
 try:
     from boot import MON_DOSSIER
@@ -19,7 +19,8 @@ if not __core_sys_done:
 
     from core_primitives import (
         dispatch, OP_EXIT, OP_LIT, OP_ZBRANCH, OP_BRANCH,
-        MARK_THEN, MARK_BEGIN, MARK_DO, MARK_LOOP
+        MARK_THEN, MARK_BEGIN, MARK_DO, MARK_LOOP,
+        OP_MIN, OP_MAX, OP_1MINUS
     )
 
     # Opcodes propres à core_system
@@ -61,21 +62,19 @@ if not __core_sys_done:
         print(f"CONSTANT {name} = {value}")
 
     async def prim_words():
-        """Affiche tous les mots triés par catégorie et ordre alphabétique"""
+        """Affiche tous les mots triés par catégorie"""
         
-        # Catégories avec leurs opcodes
         categories = {
-            "STACK": [1, 2, 3, 4, 5, 34, 35, 36, 37],  # DUP DROP SWAP OVER ROT 2DUP 2DROP NIP TUCK
-            "ARITHMETIC": [6, 7, 8, 9, 10, 11, 12],     # + - * / MOD NEGATE ABS
-            "COMPARISON": [111, 112, 113, 114, 115, 119], # < > = 0< 0= U<
-            "MEMORY": [13, 14, 15, 16, 38, 39],         # @ ! C@ C! +@ +!
-            "I/O": [17, 18, 19, 40, 41],                # . CR EMIT SPACE SPACES
-            "LOGIC": [42, 43, 44, 45],                  # AND OR XOR NOT
-            "CONTROL": [22, 23, 90, 91, 92, 109, 110, 996, 997, 998, 999],  # IF ELSE THEN BEGIN etc
-            "SYSTEM": [30, 116, 200, 201, 202, 203, 204, 205, 206],
+            "STACK": [1, 2, 3, 4, 5, 34, 35, 36, 37],
+            "ARITHMETIC": [6, 7, 8, 9, 10, 11, 12, 201, 150, 151],
+            "COMPARISON": [111, 112, 113, 114, 115, 119],
+            "MEMORY": [13, 14, 15, 16, 38, 39],
+            "I/O": [17, 18, 19, 40, 41],
+            "LOGIC": [42, 43, 44, 45],
+            "CONTROL": [22, 23, 90, 91, 92, 109, 110, 996, 997, 998, 999],
+            "SYSTEM": [30, 116, 200, 202, 203, 204, 205, 206],
         }
         
-        # Collecter tous les mots
         all_words = {}
         addr = mem.latest
         while addr:
@@ -89,13 +88,10 @@ if not __core_sys_done:
             code_addr = addr + length + (4 - (length + 1) % 4) % 4
             code = mem.wpeek(code_addr)
             
-            all_words[name] = {
-                'code': code,
-                'imm': immediate
-            }
+            all_words[name] = {'code': code, 'imm': immediate}
             addr = link
         
-        # Afficher par catégorie
+        # CORRECTION: affichage compact (1 espace au lieu de 15)
         for cat_name, opcodes in categories.items():
             words_in_cat = []
             for name, info in all_words.items():
@@ -104,12 +100,10 @@ if not __core_sys_done:
                     words_in_cat.append(name + marker)
             
             if words_in_cat:
-                print(f"\n=== {cat_name} ===")
-                for w in sorted(words_in_cat):
-                    print(f"{w:15}", end="")
-                print()
+                print(f"\n{cat_name}: ", end="")
+                print(" ".join(sorted(words_in_cat)))
         
-        # Mots définis par l'utilisateur (code >= 1000)
+        # Mots utilisateur
         user_words = []
         for name, info in all_words.items():
             if info['code'] >= 1000:
@@ -117,12 +111,10 @@ if not __core_sys_done:
                 user_words.append(name + marker)
         
         if user_words:
-            print(f"\n=== USER DEFINED ===")
-            for w in sorted(user_words):
-                print(f"{w:15}", end="")
-            print()
+            print(f"\nUSER: ", end="")
+            print(" ".join(sorted(user_words)))
         
-        # Mots avancés (300+)
+        # Mots avancés
         advanced = []
         for name, info in all_words.items():
             if 300 <= info['code'] < 1000:
@@ -130,10 +122,9 @@ if not __core_sys_done:
                 advanced.append(name + marker)
         
         if advanced:
-            print(f"\n=== ADVANCED ===")
-            for w in sorted(advanced):
-                print(f"{w:15}", end="")
-            print()
+            print(f"\nADVANCED: ", end="")
+            print(" ".join(sorted(advanced)))
+        print()
 
     async def prim_see():
         """Décompile le mot dont le nom (terminé par 0) est sur la pile"""
@@ -185,7 +176,6 @@ if not __core_sys_done:
             i += 4
         print(">")
 
-    # Enregistrement dans la table de dispatch
     dispatch.update({
         OP_RECURSE:   prim_recurse,
         OP_VARIABLE:  prim_variable,
@@ -196,7 +186,6 @@ if not __core_sys_done:
         30:           prim_dot_s,
     })
 
-    # Création effective des mots système
     def c(name, opcode, immediate=False):
         create(name, opcode, immediate=immediate)
         print(name, end=" ")
@@ -206,40 +195,41 @@ if not __core_sys_done:
     c("DUP", 1); c("DROP", 2); c("SWAP", 3); c("OVER", 4); c("ROT", 5)
     c("2DUP", 34); c("2DROP", 35); c("NIP", 36); c("TUCK", 37)
     c("+", 6); c("-", 7); c("*", 8); c("/", 9); c("MOD", 10)
-    c("NEGATE", 11); c("ABS", 12)
-    c("<", 111); c(">", 112); c("=", 113); c("0<", 114); c("0=", 115); c("U<", 119)
+    c("NEGATE", 11); c("ABS", 12); c("1+", 120); c("1-", 201); c("2*", 121); c("2/", 122)
+    c("<", 111); c(">", 112); c("=", 113); c("<>", 123); c("0<", 114); c("0=", 115)
+    c("0>", 124); c("U<", 119)
     c("@", 13); c("!", 14); c("C@", 15); c("C!", 16); c("+@", 38); c("+!", 39)
     c(".", 17); c("CR", 18); c("EMIT", 19); c("SPACE", 40); c("SPACES", 41)
-    c("AND", 42); c("OR", 43); c("XOR", 44); c("NOT", 45)
+    c("AND", 42); c("OR", 43); c("XOR", 44); c("NOT", 45); c("INVERT", 125)
+    c("LSHIFT", 126); c("RSHIFT", 127)
     c("IF", OP_ZBRANCH, immediate=True)
     c("ELSE", OP_BRANCH, immediate=True)
     c("THEN", MARK_THEN, immediate=True)
     c("BEGIN", MARK_BEGIN, immediate=True)
     c("UNTIL", OP_ZBRANCH, immediate=True)
+    c("WHILE", OP_ZBRANCH, immediate=True)
+    c("REPEAT", OP_BRANCH, immediate=True)
     c("AGAIN", OP_BRANCH, immediate=True)
     c("DO", MARK_DO, immediate=True)
     c("LOOP", MARK_LOOP, immediate=True)
     c("+LOOP", MARK_LOOP, immediate=True)
-    c("I", 109); c("J", 110)
+    c("I", 109); c("J", 110); c("UNLOOP", 128)
     c("WORDS", OP_WORDS)
-    c(".S", 30)
-    c("DEPTH", 116)
-    c("SEE", OP_SEE)
-    c("VARIABLES", OP_VARIABLES)
+    c(".S", 30); c("DEPTH", 116)
+    c("SEE", OP_SEE); c("VARIABLES", OP_VARIABLES)
     c("RECURSE", OP_RECURSE, immediate=True)
-    c("1-", 201)
+    c("MIN", 150); c("MAX", 151)
     c("VARIABLE", OP_VARIABLE, immediate=True)
     c("CONSTANT", OP_CONSTANT, immediate=True)
-    c("MIN", 150); c("MAX", 151)
+    c("HERE", 129); c("ALLOT", 130); c(",", 131); c("C,", 132)
     print()
 
-    # Chargement du vocabulaire étendu
     try:
         import core_system1
     except ImportError:
         print("core_system1.py absent – mots CREATE/DOES> non chargés")
 
-    print(f"core_system.py v{version[1]} chargé – WORDS classé par catégorie")
+    print(f"core_system.py v{version[1]} chargé – mots Forth standard niveau 1")
     __core_sys_done = True
 
-# fin du "core_system" version "42"
+# fin du "core_system" version "44"

@@ -1,5 +1,5 @@
-# début du "main" version "65"
-version = ('main.py', 65)
+# début du "main" version "66"
+version = ('main.py', 66)
 
 import uasyncio as asyncio
 import sys
@@ -11,27 +11,22 @@ def charger(nom):
     """Charger un module Python"""
     chemin = MON_DOSSIER + nom if MON_DOSSIER else nom
     try:
-        # Importer le module
         module_name = chemin.rstrip('.py').replace('/', '.')
         __import__(module_name)
         src = "lib1" if MON_DOSSIER else "racine"
         print(f"  {nom:20} → chargé [{src}]")
     except Exception as e:
         print(f"ERREUR chargement {nom} : {e}")
-        sys.print_exception(e)
-        raise
 
 print("\n" + "="*72)
-print(" CHARGEMENT DES MODULES FORTH (main.py v65)")
+print(" CHARGEMENT DES MODULES FORTH (main.py v66)")
 print("="*72)
 
-# Chargement dans l'ordre strict
-charger('memoire.py')
-charger('piles.py')
-charger('dictionnaire.py')
-charger('core_primitives.py')
-charger('core_system.py')
-charger('core_system1.py')
+# Chargement des modules
+for module in [
+    'memoire.py', 'piles.py', 'dictionnaire.py', 
+    'core_primitives.py', 'core_system.py', 'core_system1.py']:
+    charger(module)
 
 print("="*72)
 
@@ -107,15 +102,15 @@ async def execute_colon(addr):
 # ================================================
 async def repl():
     print("\n" + "="*72)
-    print(" FORTH ESP32-S3 v65 – SYSTÈME FONCTIONNEL")
+    print(" FORTH ESP32-S3 v66 – SYSTÈME FONCTIONNEL")
     print(" Tape : WORDS  ou  5 DUP * .")
     print("="*72 + "\n")
 
     while True:
         try:
             prompt = "ok> " if mem.state == 0 else ": "
-            line = input(prompt)
-            if not line.strip():
+            line = input(prompt).strip()
+            if not line:
                 continue
 
             # Supprimer commentaires ( ... )
@@ -189,7 +184,6 @@ async def repl():
                     else:
                         await execute_colon(opcode)
                 else:
-                    # Compilation
                     if immediate:
                         await execute_primitive(opcode)
                     elif opcode in (OP_ZBRANCH, OP_BRANCH):
@@ -206,11 +200,10 @@ async def repl():
 
         except Exception as e:
             print(f"\n[ERREUR] {e}")
-            sys.print_exception(e)
             mem.state = 0
             compile_stack.clear()
 
-print("main.py v65 chargé – démarrage REPL\n")
+print("main.py v66 chargé – démarrage REPL\n")
 asyncio.run(repl())
 
-# fin du "main" version "65"
+# fin du "main" version "66"
