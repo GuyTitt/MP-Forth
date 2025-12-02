@@ -38,17 +38,56 @@ boot.py (lancé au reset)
 
 | Module | Version | Rôle |
 |--------|---------|------|
-| boot.py | v23 | Initialisation système |
-| main.py | v72 | REPL principal |
-| memoire.py | v15 | Gestion mémoire |
-| piles.py | v14 | Piles données/retour |
+| boot.py | v25 | Initialisation système |
+| main.py | v74 | REPL principal |
+| memoire.py | v17 | Gestion mémoire (adaptative) |
+| piles.py | v15 | Piles données/retour |
 | dictionnaire.py | v30 | Recherche/création mots |
-| core_primitives.py | v35 | Primitives bas niveau |
+| core_primitives.py | v36 | Primitives bas niveau |
 | core_system.py | v46 | Vocabulaire système |
 | core_system1.py | v2 | Mots avancés |
 | core_level2.py | v1 | Mots Forth compilés |
 | core_hardware.py | v2 | GPIO, Time, NeoPixel |
-| stdlib.f4 | v1.0 | Bibliothèque Forth pure |
+| stdlib.v | v1.0 | Bibliothèque Forth pure |
+
+---
+
+## 💾 Gestion de la mémoire - Important !
+
+### Tailles RAM selon les cartes
+
+| Carte | RAM interne | PSRAM | Total disponible |
+|-------|-------------|-------|------------------|
+| ESP32-S3 basique | ~320KB | 0 | ~320KB |
+| ESP32-S3N8 | ~320KB | 8MB | ~8.3MB |
+| ESP32-S3N16R8 | ~320KB | 8MB | ~8.3MB (si PSRAM activée) |
+| Wokwi (simulation) | Illimité | - | Illimité |
+
+### Allocation mémoire adaptative (v17)
+
+`memoire.py v17` détecte automatiquement la RAM disponible et alloue :
+- **512KB** si possible (Wokwi, cartes avec PSRAM)
+- **256KB** si échec (ESP32-S3 sans PSRAM)
+- **128KB** en dernier recours
+- **64KB** minimum requis
+
+**Sortie typique** :
+```
+RAM Forth allouée: 256KB (libre: 180KB)
+  Zones: Dict=0x100-0x100, Piles=0x3ff00-0x3fff0
+```
+
+### Problème PSRAM non détectée
+
+Si vous voyez :
+```
+E (301) quad_psram: PSRAM ID read error
+```
+
+**Solutions** :
+1. Utiliser la version adaptative (memoire.py v17) ✅
+2. Activer PSRAM dans sdkconfig de MicroPython (complexe)
+3. Accepter 256KB au lieu de 512KB (largement suffisant)
 
 ---
 
