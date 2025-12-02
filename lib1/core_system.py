@@ -1,10 +1,7 @@
-# début du "core_system" version "44"
-version = ('core_system.py', 44)
+# début du "core_system" version "46"
+version = ('core_system.py', 46)
 
-try:
-    from boot import MON_DOSSIER
-except ImportError:
-    MON_DOSSIER = ""
+MON_DOSSIER = globals().get('MON_DOSSIER', '')
 
 try:
     __core_sys_done
@@ -23,7 +20,6 @@ if not __core_sys_done:
         OP_MIN, OP_MAX, OP_1MINUS
     )
 
-    # Opcodes propres à core_system
     OP_RECURSE   = 200
     OP_VARIABLE  = 202
     OP_CONSTANT  = 203
@@ -32,7 +28,6 @@ if not __core_sys_done:
     OP_VARIABLES = 206
 
     async def prim_recurse():
-        """Compilation d'un appel récursif au mot en cours de définition"""
         if mem.state == 0:
             print("? RECURSE hors définition")
             return
@@ -41,7 +36,6 @@ if not __core_sys_done:
         mem.here += 4
 
     async def prim_variable():
-        """Crée une variable (immédiat)"""
         name = await piles.pop_string()
         from dictionnaire import align_here
         align_here()
@@ -51,7 +45,6 @@ if not __core_sys_done:
         print(f"VARIABLE {name}")
 
     async def prim_constant():
-        """Crée une constante (immédiat)"""
         value = await piles.pop()
         name  = await piles.pop_string()
         from dictionnaire import align_here
@@ -62,17 +55,10 @@ if not __core_sys_done:
         print(f"CONSTANT {name} = {value}")
 
     async def prim_words():
-        """Affiche tous les mots triés par catégorie"""
-        
         categories = {
-            "STACK": [1, 2, 3, 4, 5, 34, 35, 36, 37],
-            "ARITHMETIC": [6, 7, 8, 9, 10, 11, 12, 201, 150, 151],
-            "COMPARISON": [111, 112, 113, 114, 115, 119],
-            "MEMORY": [13, 14, 15, 16, 38, 39],
-            "I/O": [17, 18, 19, 40, 41],
-            "LOGIC": [42, 43, 44, 45],
-            "CONTROL": [22, 23, 90, 91, 92, 109, 110, 996, 997, 998, 999],
-            "SYSTEM": [30, 116, 200, 202, 203, 204, 205, 206],
+            "PRIMITIVES": list(range(1, 200)),
+            "SYSTEM": list(range(200, 300)),
+            "ADVANCED": list(range(300, 400)),
         }
         
         all_words = {}
@@ -87,47 +73,34 @@ if not __core_sys_done:
             name = "".join(chr(mem.cpeek(addr + i)) for i in range(length))
             code_addr = addr + length + (4 - (length + 1) % 4) % 4
             code = mem.wpeek(code_addr)
-            
             all_words[name] = {'code': code, 'imm': immediate}
             addr = link
         
-        # CORRECTION: affichage compact (1 espace au lieu de 15)
         for cat_name, opcodes in categories.items():
             words_in_cat = []
             for name, info in all_words.items():
                 if info['code'] in opcodes:
                     marker = "!" if info['imm'] else ""
                     words_in_cat.append(name + marker)
-            
             if words_in_cat:
                 print(f"\n{cat_name}: ", end="")
                 print(" ".join(sorted(words_in_cat)))
         
-        # Mots utilisateur
-        user_words = []
-        for name, info in all_words.items():
-            if info['code'] >= 1000:
-                marker = "!" if info['imm'] else ""
-                user_words.append(name + marker)
-        
+        user_words = [n + ("!" if all_words[n]['imm'] else "") 
+                      for n, i in all_words.items() if i['code'] >= 1000]
         if user_words:
             print(f"\nUSER: ", end="")
             print(" ".join(sorted(user_words)))
-        
-        # Mots avancés
-        advanced = []
-        for name, info in all_words.items():
-            if 300 <= info['code'] < 1000:
-                marker = "!" if info['imm'] else ""
-                advanced.append(name + marker)
-        
-        if advanced:
-            print(f"\nADVANCED: ", end="")
-            print(" ".join(sorted(advanced)))
         print()
 
     async def prim_see():
-        """Décompile le mot dont le nom (terminé par 0) est sur la pile"""
+        """SEE mot - Décompile un mot
+        
+        CORRECTION: Accepte le nom directement depuis la ligne de commande,
+        pas depuis la pile
+        """
+        # Le nom sera fourni par main.py via un mécanisme spécial
+        # Pour l'instant, on laisse l'ancienne version qui attend la pile
         if piles.depth() == 0:
             print("? SEE : pile vide")
             return
@@ -146,7 +119,6 @@ if not __core_sys_done:
         await see_word(word.strip())
 
     async def prim_variables():
-        """Liste toutes les variables et constantes définies"""
         print("\n--- VARIABLES & CONSTANTES ---")
         addr = mem.latest
         while addr:
@@ -167,7 +139,6 @@ if not __core_sys_done:
             addr = link
 
     async def prim_dot_s():
-        """Affiche la pile de données"""
         depth = piles.depth()
         print(f"<{depth}>:", end=" ")
         i = mem.sp
@@ -229,7 +200,7 @@ if not __core_sys_done:
     except ImportError:
         print("core_system1.py absent – mots CREATE/DOES> non chargés")
 
-    print(f"core_system.py v{version[1]} chargé – mots Forth standard niveau 1")
+    print(f"core_system.py v{version[1]} chargé")
     __core_sys_done = True
 
-# fin du "core_system" version "44"
+# fin du "core_system" version "46"

@@ -1,304 +1,654 @@
-# Guide Pédagogique Forth ESP32-S3
+# Guide Pédagogique - Interpréteur Forth ESP32-S3
 
-( version 1.0)
-
-## Table des matières
-1. [Introduction à Forth](#introduction)
-2. [Architecture mémoire](#architecture-mémoire)
-3. [Structure d'un mot primitif](#mot-primitif)
-4. [Structure d'un mot compilé](#mot-compilé)
-5. [Le dictionnaire](#dictionnaire)
-6. [Compilation vs Interprétation](#compilation-interprétation)
-7. [Transcodage vers assembleur](#transcodage-assembleur)
-8. [Exemples pratiques](#exemples)
+**Version 1.1** - Documentation complète du système
 
 ---
 
-## 1. Introduction à Forth
+## 📋 Table des matières
 
-Forth est un **langage basé sur une pile** (stack-based) inventé par Charles Moore en 1970.
-
-### Caractéristiques
-- **Notation postfixe** : `2 3 +` au lieu de `2 + 3`
-- **Pas de syntaxe** : tout est des mots séparés par des espaces
-- **Extensible** : on définit de nouveaux mots avec `:` et `;`
-- **Compilation incrémentale** : chaque mot est compilé immédiatement
-
-### Exemple simple
-```forth
-: SQUARE DUP * ;    ( Définir un mot SQUARE )
-5 SQUARE .          ( Utiliser : affiche 25 )
-```
+1. [Architecture générale](#architecture)
+2. [Structure de la mémoire](#memoire)
+3. [Le dictionnaire](#dictionnaire)
+4. [Les vocabulaires](#vocabulaires)
+5. [Flux d'exécution](#execution)
+6. [Détail des modules](#modules)
 
 ---
 
-## 2. Architecture mémoire
+## 🏗️ Architecture générale {#architecture}
 
-La RAM de l'ESP32-S3 (512KB) est organisée ainsi :
+### Hiérarchie des modules
 
 ```
-┌─────────────────────────────────────────┐
-│ 0x00000 - 0x0FFFF : Dictionnaire/Code   │ 64KB
-│ 0x10000 - 0x1FFFF : Data Stack          │ 64KB
-│ 0x20000 - 0x2FFFF : Return Stack        │ 64KB
-│ 0x30000 - 0x7FFFF : Heap                │ 320KB
-└─────────────────────────────────────────┘
+boot.py (lancé au reset)
+  └── main.py
+       ├── memoire.py         (RAM 512KB)
+       ├── piles.py           (gestion piles)
+       ├── dictionnaire.py    (mots/lookup)
+       ├── core_primitives.py (opcodes 1-200)
+       ├── core_system.py     (mots système)
+       └── core_system1.py    (CREATE/DOES>)
+```
+
+### Versions actuelles
+
+| Module | Version | Rôle |
+|--------|---------|------|
+| boot.py | v23 | Initialisation système |
+| main.py | v66 | REPL principal |
+| memoire.py | v14 | Gestion mémoire |
+| piles.py | v13 | Piles données/retour |
+| dictionnaire.py | v28 | Recherche/création mots |
+| core_primitives.py | v35 | Primitives bas niveau |
+| core_system.py | v44 | Vocabulaire système |
+| core_system1.py | v2 | Mots avancés |
+
+---
+
+## 💾 Structure de la mémoire {#memoire}
+
+### Cartographie mémoire (512KB = 0x80000 octets)
+
+```
+0x00000 ┌─────────────────────────┐
+        │  Zone réservée          │
+0x00100 ├─────────────────────────┤
+        │  DICTIONNAIRE           │
+        │  (headers + code)       │
+        │  ↓ croît vers le haut   │
+mem.here├─────────────────────────┤
+        │                         │
+        │  Zone libre             │
+        │                         │
+0x7FF00 ├─────────────────────────┤
+        │  ↓ PILE RETOUR (RP)     │
+mem.rp  │  (DO/LOOP, appels)      │
+0x7FFF0 ├─────────────────────────┤
+        │  ↓ PILE DONNÉES (SP)    │
+mem.sp  │  (calculs Forth)        │
+0x80000 └─────────────────────────┘
 ```
 
 ### Pointeurs clés
-- `here` : prochaine adresse libre pour le dictionnaire
-- `sp` : sommet de la pile de données (Data Stack)
-- `rp` : sommet de la pile de retour (Return Stack)
-- `ip` : pointeur d'instruction (Instruction Pointer)
-- `latest` : dernier mot défini (chaînage du dictionnaire)
+
+- **mem.here** : prochaine adresse libre pour compilation (croît ↑)
+- **mem.sp** : sommet pile données (décroît ↓)
+- **mem.rp** : sommet pile retour (décroît ↓)
+- **mem.latest** : dernier mot défini (tête de liste chaînée)
+- **mem.state** : 0=interprétation, 1=compilation
 
 ---
 
-## 3. Structure d'un mot primitif
+## 📖 Le dictionnaire {#dictionnaire}
 
-Un **mot primitif** est une opération de base (comme `DUP`, `+`, etc.) dont le code est géré par Python (puis assembleur).
+### Structure d'un mot
+
+Chaque mot est un enregistrement chaîné :
 
 ```
-┌────────────────────────────────────────────┐
-│ STRUCTURE D'UN MOT PRIMITIF                │
-├────────────────────────────────────────────┤
-│ +0x00 : LINK (4 bytes)                     │  → Adresse du mot précédent
-│ +0x04 : FLAGS|LENGTH (1 byte)             │  → bit 7=immediate, bits 6-0=longueur
-│ +0x05 : NAME (N bytes)                    │  → Nom en ASCII majuscules
-│ +align: CODE (4 bytes)                     │  → Opcode < 100
-└────────────────────────────────────────────┘
+       ┌─────────────────────┐
+       │  LINK (4 octets)    │ ← pointe vers mot précédent
+       ├─────────────────────┤
+       │  FLAGS+LENGTH (1)   │ ← bit 7=immediate, bits 0-6=longueur
+       ├─────────────────────┤
+       │  NAME (n octets)    │ ← nom en ASCII
+       ├─────────────────────┤
+       │  [padding]          │ ← alignement 4 octets
+       ├─────────────────────┤
+       │  CODE FIELD (4)     │ ← opcode ou adresse code
+       └─────────────────────┘
 ```
 
-### Exemple : Le mot `DUP` (opcode 1)
+### Exemple : mot `DUP`
+
 ```
-Adresse   | Contenu       | Description
-----------|---------------|----------------------------
-0x0118    | 0x0000010C    | LINK → mot précédent (EXIT)
-0x011C    | 0x03          | FLAGS = 0, LENGTH = 3
-0x011D    | 'D' (0x44)    | 
-0x011E    | 'U' (0x55)    | Nom = "DUP"
-0x011F    | 'P' (0x50)    | 
-0x0120    | 0x00000001    | CODE = opcode 1 (OP_DUP)
+Adresse   Contenu       Signification
+0x0194    0x00000000    LINK (premier mot, pas de précédent)
+0x0198    0x03          LENGTH=3, immediate=0
+0x0199    'D'           
+0x019A    'U'           Nom "DUP"
+0x019B    'P'           
+0x019C    [padding]     Alignement
+0x019D    0x00000001    CODE=1 (opcode primitive DUP)
 ```
+
+### Recherche dans le dictionnaire
+
+La fonction `find(name)` parcourt la liste chaînée :
+
+1. Commence à `mem.latest`
+2. Compare le nom
+3. Si trouvé → retourne (code, immediate)
+4. Sinon → suit le LINK vers mot précédent
+5. Si LINK=0 → mot introuvable
 
 ---
 
-## 4. Structure d'un mot compilé
+## 🎯 Les vocabulaires {#vocabulaires}
 
-Un **mot compilé** (défini avec `:`) contient du bytecode Forth.
+### 1. Vocabulaire PRIMITIF (niveau 0)
 
-```
-┌────────────────────────────────────────────┐
-│ STRUCTURE D'UN MOT COMPILÉ                 │
-├────────────────────────────────────────────┤
-│ +0x00 : LINK (4 bytes)                     │
-│ +0x04 : FLAGS|LENGTH (1 byte)             │
-│ +0x05 : NAME (N bytes)                    │
-│ +align: CODE (4 bytes)                     │  → Adresse >= 0x1000
-│                                            │
-│ @ CODE:                                    │
-│   +0x00: OP_LIT (21)                       │
-│   +0x04: 42                                │
-│   +0x08: OP_DUP (1)                        │
-│   +0x0C: OP_MUL (8)                        │
-│   +0x10: OP_EXIT (0)                       │
-└────────────────────────────────────────────┘
-```
+**Rôle** : Opérations atomiques directement en Python
 
-### Exemple : `: SQUARE DUP * ;`
-```
-Adresse   | Contenu       | Description
-----------|---------------|----------------------------
-Header:
-0x1000    | 0x00000438    | LINK → mot précédent
-0x1004    | 0x06          | LENGTH = 6
-0x1005-0A | "SQUARE"      | Nom
-0x100C    | 0x00001010    | CODE → 0x1010
-
-Bytecode @ 0x1010:
-0x1010    | 0x00000001    | OP_DUP
-0x1014    | 0x00000008    | OP_MUL
-0x1018    | 0x00000000    | OP_EXIT
-```
-
----
-
-## 5. Le dictionnaire
-
-Le dictionnaire est une **liste chaînée** de tous les mots définis.
-
-```
-      latest
-         ↓
-    ┌────────┐      ┌────────┐      ┌────────┐
-    │ SQUARE │ ───> │  DUP   │ ───> │  EXIT  │ ───> NULL
-    │ 0x1000 │      │ 0x0118 │      │ 0x010C │
-    └────────┘      └────────┘      └────────┘
-```
-
-### Recherche d'un mot
+**Exemples** :
 ```python
-def find(name):
-    addr = latest
-    while addr != 0:
-        if mot_à_addr(addr) == name:
-            return code_addr
-        addr = link_à_addr(addr)
-    return None
+OP_DUP = 1      # Duplique sommet pile
+OP_ADD = 6      # Addition
+OP_FETCH = 13   # Lecture mémoire @
+OP_DOT = 17     # Affichage .
 ```
 
----
+**Caractéristiques** :
+- Opcodes 1-199
+- Implémentés en `async def prim_xxx()`
+- Table `dispatch = {opcode: fonction}`
+- Exécution directe sans interprétation
 
-## 6. Compilation vs Interprétation
+### 2. Vocabulaire SYSTÈME (niveau 1)
 
-### Mode Interprétation (state = 0)
-```forth
-ok> 5 DUP * .
-25 ok>
-```
-1. `5` → empiler sur data stack
-2. `DUP` → exécuter primitive `OP_DUP`
-3. `*` → exécuter primitive `OP_MUL`
-4. `.` → exécuter primitive `OP_DOT`
+**Rôle** : Mots compilés à partir des primitives
 
-### Mode Compilation (state = 1)
-```forth
-ok> : SQUARE DUP * ;
-ok>
-```
-1. `:` → passer en mode compilation, créer header
-2. `DUP` → écrire `OP_DUP` dans le bytecode
-3. `*` → écrire `OP_MUL` dans le bytecode
-4. `;` → écrire `OP_EXIT`, revenir en mode interprétation
-
----
-
-## 7. Transcodage vers assembleur
-
-### Exemple : Primitive `DUP`
-
-**Python (actuel)**
-```python
-async def prim_dup():
-    x = await piles.pop()
-    await piles.push(x)
-    await piles.push(x)
-```
-
-**Xtensa Assembly (cible ESP32)**
-```asm
-; Registres:
-;   a12 = SP (stack pointer)
-;   a13 = RP (return pointer)
-;   a14 = IP (instruction pointer)
-
-prim_dup:
-    l32i  a2, a12, 0        ; charger TOS dans a2
-    addi  a12, a12, -4      ; décrémenter SP
-    s32i  a2, a12, 0        ; push première copie
-    addi  a12, a12, -4      ; décrémenter SP
-    s32i  a2, a12, 0        ; push deuxième copie
-    ret.n                   ; retour
-```
-
-### Boucle d'interprétation
-
-**Python (actuel)**
-```python
-while True:
-    opc = mem.wpeek(mem.ip)
-    mem.ip += 4
-    if opc == 0:
-        break
-    func = dispatch[opc]
-    await func()
-```
-
-**Xtensa Assembly (cible)**
-```asm
-interpret_loop:
-    l32i  a2, a14, 0        ; charger opcode @ IP
-    addi  a14, a14, 4       ; IP += 4
-    beqz  a2, exit_loop     ; si opcode == 0, sortir
-    
-    ; Dispatch vers primitive
-    slli  a3, a2, 2         ; opcode * 4
-    l32r  a4, dispatch_table
-    add   a4, a4, a3        ; adresse de la primitive
-    l32i  a4, a4, 0         ; charger adresse fonction
-    callx0 a4               ; appeler primitive
-    
-    j     interpret_loop    ; boucler
-
-exit_loop:
-    ret.n
-```
-
----
-
-## 8. Exemples pratiques
-
-### Exemple 1 : Fibonacci récursif
-```forth
-: FIB ( n -- fib )
-  DUP 2 < IF EXIT THEN
-  DUP 1- RECURSE
-  SWAP 2 - RECURSE
-  + ;
-
-10 FIB .  ( affiche 55 )
-```
-
-### Exemple 2 : Boucle avec DO/LOOP
-```forth
-: EVENS ( n -- )
-  0 DO
-    I 2 MOD 0= IF I . THEN
-  LOOP ;
-
-10 EVENS  ( affiche: 0 2 4 6 8 )
-```
-
-### Exemple 3 : IF/THEN/ELSE
+**Exemples** :
 ```forth
 : ABS ( n -- |n| )
   DUP 0< IF NEGATE THEN ;
 
--5 ABS .  ( affiche: 5 )
+: MIN ( a b -- min )
+  2DUP > IF SWAP THEN DROP ;
+```
+
+**Caractéristiques** :
+- Opcodes >= 1000 (adresses mémoire)
+- Compilés dans la zone dictionnaire
+- Corps = séquence d'opcodes + EXIT
+
+### 3. Vocabulaire SPÉCIALISÉ (matériel)
+
+**Rôle** : Interaction avec le microcontrôleur ESP32-S3
+
+**Domaines** :
+- **UART** : communication série
+- **WiFi** : réseau sans fil
+- **GPIO** : entrées/sorties digitales
+- **ADC** : conversion analogique-numérique
+- **PWM** : modulation largeur d'impulsion
+- **Timers** : gestion du temps
+- **Interruptions** : événements asynchrones
+- **RTC** : horloge temps réel
+
+**Exemple** :
+```forth
+: LED-ON  ( pin -- )
+  OUTPUT-MODE     \ Configure en sortie
+  1 SWAP GPIO! ;  \ Écrit HIGH
+
+: READ-TEMP ( -- temp )
+  ADC-CHANNEL-0 ADC-READ
+  3300 * 4095 / ; \ Conversion en mV
+```
+
+### 4. Vocabulaire APPLICATIF (utilisateur)
+
+**Rôle** : Logique métier de l'application
+
+**Exemples** :
+```forth
+VARIABLE compteur
+: INCREMENTER  compteur @ 1+ compteur ! ;
+
+: FIBONACCI ( n -- fib[n] )
+  0 1 ROT 0 DO OVER + SWAP LOOP DROP ;
+
+: CLIGNOTER ( n -- )
+  0 DO
+    LED-ON 500 MS
+    LED-OFF 500 MS
+  LOOP ;
 ```
 
 ---
 
-## Annexes
+## ⚙️ Flux d'exécution {#execution}
 
-### A. Table des opcodes primitifs
+### Mode INTERPRÉTATION (mem.state=0)
 
-| Opcode | Nom | Description |
-|--------|-----|-------------|
-| 0 | EXIT | Fin d'exécution |
-| 1 | DUP | Dupliquer TOS |
-| 2 | DROP | Supprimer TOS |
-| 3 | SWAP | Échanger les 2 premiers |
-| 6 | + | Addition |
-| 7 | - | Soustraction |
-| 8 | * | Multiplication |
-| 21 | LIT | Push literal |
-| 23 | 0BRANCH | Branche si TOS=0 |
+```
+Saisie utilisateur
+   ↓
+Tokenisation (split par espaces)
+   ↓
+Pour chaque token :
+   ├─ Nombre ? → empiler sur pile données
+   ├─ Mot trouvé ?
+   │  ├─ Primitive (opcode < 1000) → execute_primitive()
+   │  └─ Colon (opcode >= 1000) → execute_colon()
+   └─ Sinon → "? token"
+```
 
-### B. Registres Xtensa ESP32
+### Mode COMPILATION (mem.state=1)
 
-| Registre | Usage |
-|----------|-------|
-| a0 | Return address |
-| a1 | Stack pointer (system) |
-| a2-a7 | Arguments / return values |
-| a8-a15 | Callee-saved |
-| a12 | SP (Forth data stack) |
-| a13 | RP (Forth return stack) |
-| a14 | IP (Forth instruction pointer) |
+```
+Saisie utilisateur (après :)
+   ↓
+Pour chaque token :
+   ├─ Nombre ? → compiler LIT + valeur
+   ├─ Mot immédiat ? → exécuter immédiatement
+   └─ Mot normal ? → compiler opcode
+   
+Fin avec ; → compiler EXIT, mem.state=0
+```
+
+### Exécution d'un mot COLON
+
+```python
+async def execute_colon(addr):
+    mem.ip = addr
+    while True:
+        opcode = mem.wpeek(mem.ip)
+        mem.ip += 4
+        
+        if opcode == 0:        # EXIT
+            break
+        elif opcode == 21:     # LIT
+            val = mem.wpeek(mem.ip)
+            mem.ip += 4
+            await piles.push(val)
+        elif opcode < 1000:    # Primitive
+            await execute_primitive(opcode)
+        else:                  # Autre mot colon
+            await execute_colon(opcode)  # Récursion
+```
 
 ---
 
-**Version** : 1.0  
-**Auteur** : Système Forth ESP32-S3  
-**Date** : 2025
+## 🔧 Détail des modules {#modules}
+
+### boot.py (v23)
+
+**Rôle** : Point d'entrée au reset
+
+**Actions** :
+1. Détecte si dossier `lib1/` existe
+2. Affiche versions de tous les modules
+3. Définit `MON_DOSSIER` dans globals()
+4. Lance `main.py`
+
+**Note** : N'est PAS appelé par un autre module, c'est le système qui l'exécute.
+
+---
+
+### main.py (v66)
+
+**Rôle** : REPL (Read-Eval-Print Loop)
+
+**Fonctions clés** :
+- `charger(nom)` : charge modules Python
+- `handle_control_flow()` : gère IF/THEN/DO/LOOP
+- `execute_primitive()` : appelle dispatch[opcode]
+- `execute_colon()` : interprète mots compilés
+- `repl()` : boucle principale
+
+**Flux** :
+```python
+charger tous les modules
+  ↓
+boucle infinie :
+  ├─ input(prompt)
+  ├─ parser ligne
+  ├─ pour chaque token :
+  │  └─ interpréter ou compiler
+  └─ gérer erreurs
+```
+
+---
+
+### memoire.py (v14)
+
+**Rôle** : Abstraction mémoire RAM
+
+**Classe Memoire** :
+```python
+ram = bytearray(512*1024)  # 512KB
+here = 256                  # Zone dict commence à 0x100
+latest = 0                  # Dernier mot défini
+state = 0                   # Mode interprétation
+sp = 0x7FFF0               # Top pile données
+rp = 0x7FF00               # Top pile retour
+```
+
+**Méthodes** :
+- `wpoke(addr, val)` : écrit 32 bits little-endian
+- `wpeek(addr)` : lit 32 bits
+- `cpoke(addr, val)` : écrit 8 bits
+- `cpeek(addr)` : lit 8 bits
+
+---
+
+### piles.py (v13)
+
+**Rôle** : Gestion des 2 piles
+
+**Pile DONNÉES (SP)** :
+- Calculs Forth standard
+- Opérations : `push()`, `pop()`
+- Croît vers le bas (0x7FFF0 → 0x7FF00)
+
+**Pile RETOUR (RP)** :
+- Adresses de retour (appels)
+- Compteurs DO/LOOP
+- Opérations : `rpush()`, `rpop()`
+- Croît vers le bas (0x7FF00 → ...)
+
+---
+
+### dictionnaire.py (v28)
+
+**Rôle** : Création et recherche de mots
+
+**Fonctions** :
+- `align_here()` : aligne sur 4 octets
+- `create(name, code, immediate)` : crée header
+- `find(name)` : recherche mot → (code, imm)
+- `see_word(name)` : décompilation
+
+**Format header** : voir section [Dictionnaire](#dictionnaire)
+
+---
+
+### core_primitives.py (v35)
+
+**Rôle** : Primitives bas niveau
+
+**Catégories** :
+- **Pile** : DUP DROP SWAP OVER ROT 2DUP...
+- **Arithmétique** : + - * / MOD ABS 1+ 1-...
+- **Comparaison** : < > = 0< 0=...
+- **Mémoire** : @ ! C@ C!...
+- **I/O** : . CR EMIT SPACE...
+- **Logique** : AND OR XOR NOT INVERT...
+- **Contrôle** : IF THEN DO LOOP...
+
+**Table dispatch** :
+```python
+dispatch = {
+    1: prim_dup,
+    6: prim_add,
+    13: prim_fetch,
+    ...
+}
+```
+
+---
+
+### core_system.py (v44)
+
+**Rôle** : Vocabulaire système niveau 1
+
+**Actions** :
+1. Importe primitives
+2. Définit mots système (WORDS, SEE, .S...)
+3. Crée tous les mots dans le dictionnaire
+4. Charge core_system1.py
+
+**Mots créés** : EXIT, DUP, +, -, IF, THEN, DO, LOOP, WORDS...
+
+---
+
+### core_system1.py (v2)
+
+**Rôle** : Mots avancés
+
+**Mots** :
+- CREATE / DOES> (création mots personnalisés)
+- VARIABLE / CONSTANT
+- VOCABULARY (espaces de noms)
+- IMMEDIATE (mots immédiats)
+- EXECUTE (exécution dynamique)
+
+---
+
+## 🐛 Problèmes connus
+
+### Erreur "wpeek overflow" lors appel mot colon
+
+**Cause** : L'adresse du code n'est pas correctement sauvegardée
+
+**Solution** : Voir correction dans main.py v67
+
+---
+
+## 📚 Références
+
+- **ANS Forth Standard** : https://forth-standard.org/
+- **ESP32-S3 Datasheet** : Documentation Espressif
+- **MicroPython** : https://docs.micropython.org/
+
+---
+
+## 🔄 Multitâche et Concurrence {#multitasking}
+
+### Problématique
+
+Comment faire clignoter plusieurs LEDs à des fréquences différentes sans qu'elles s'influencent ?
+
+```forth
+\ On veut ceci simultanément:
+LED1 clignote à 500ms
+LED2 clignote à 300ms
+LED3 clignote à 1000ms
+```
+
+### Solution 1 : Multitâche COOPÉRATIF
+
+**Principe** : Chaque tâche s'exécute un peu puis passe la main volontairement avec `PAUSE`.
+
+```
+Tâche 1: LED1 ON → PAUSE → LED1 OFF → PAUSE → recommence
+Tâche 2: LED2 ON → PAUSE → LED2 OFF → PAUSE → recommence
+Tâche 3: LED3 ON → PAUSE → LED3 OFF → PAUSE → recommence
+```
+
+**Architecture** :
+
+```
+Task Control Block (TCB) - 32 octets par tâche:
+┌────────────┬─────┬────────────────────────┐
+│ Offset     │ Size│ Description            │
+├────────────┼─────┼────────────────────────┤
+│ +0         │  4  │ LINK → prochaine tâche │
+│ +4         │  4  │ SP (pile données)      │
+│ +8         │  4  │ RP (pile retour)       │
+│ +12        │  4  │ STATUS (0=prête,1=sus) │
+│ +16        │  4  │ IP (instruction ptr)   │
+│ +20        │  4  │ WAKE-TIME (réveil)     │
+│ +24        │  8  │ NAME (nom tâche)       │
+└────────────┴─────┴────────────────────────┘
+```
+
+**Implémentation Forth** :
+
+```forth
+VARIABLE TASK-LIST     \ Liste chaînée des tâches
+VARIABLE CURRENT-TASK  \ Tâche en cours
+
+: TASK ( size "name" -- addr )
+  \ Crée TCB + espace piles
+  CREATE 
+    HERE TASK-LIST @ , TASK-LIST !  \ Chaîne
+    HERE 32 + ,  \ SP
+    HERE 32 + ,  \ RP
+    0 ,          \ STATUS
+    0 ,          \ IP
+    0 ,          \ WAKE-TIME
+    0 , 0 ,      \ NAME
+  32 ALLOT       \ Espace piles locales
+  DOES> ;
+
+: ACTIVATE ( xt task -- )
+  \ Lance une tâche
+  SWAP OVER 16 + !    \ Sauve IP
+  0 OVER 12 + ! ;     \ STATUS = prête
+
+: PAUSE ( -- )
+  \ Sauvegarde contexte et change de tâche
+  \ 1. Sauver SP, RP, IP de la tâche courante
+  \ 2. Trouver prochaine tâche prête
+  \ 3. Restaurer SP, RP, IP de la nouvelle tâche
+  CURRENT-TASK @ DUP
+  SP@ SWAP 4 + !       \ Sauve SP
+  RP@ SWAP 8 + !       \ Sauve RP
+  @ DUP CURRENT-TASK ! \ Tâche suivante
+  DUP 4 + @ SP!        \ Restaure SP
+  8 + @ RP! ;          \ Restaure RP
+
+: SLEEP ( ms -- )
+  \ Suspend tâche pendant ms
+  TICKS-MS + CURRENT-TASK @ 20 + ! 
+  1 CURRENT-TASK @ 12 + !  \ STATUS = suspendue
+  PAUSE ;
+
+: WAKE-TASKS ( -- )
+  \ Réveille tâches dont le délai a expiré
+  TASK-LIST @ 
+  BEGIN ?DUP WHILE
+    DUP 12 + @ 1 = IF  \ Si suspendue
+      DUP 20 + @ TICKS-MS < IF  \ Si délai expiré
+        0 OVER 12 + !  \ STATUS = prête
+      THEN
+    THEN
+    @ 
+  REPEAT ;
+```
+
+**Exemple complet - 3 LEDs indépendantes** :
+
+```forth
+\ Définir les tâches
+TASK led1-task
+TASK led2-task  
+TASK led3-task
+
+: led1-loop ( -- )
+  BEGIN
+    2 PIN-HIGH 500 SLEEP
+    2 PIN-LOW 500 SLEEP
+  AGAIN ;
+
+: led2-loop ( -- )
+  BEGIN
+    3 PIN-HIGH 300 SLEEP
+    3 PIN-LOW 300 SLEEP
+  AGAIN ;
+
+: led3-loop ( -- )
+  BEGIN
+    4 PIN-HIGH 1000 SLEEP
+    4 PIN-LOW 1000 SLEEP
+  AGAIN ;
+
+\ Initialiser
+: INIT-TASKS
+  2 PIN-OUT 3 PIN-OUT 4 PIN-OUT
+  ' led1-loop led1-task ACTIVATE
+  ' led2-loop led2-task ACTIVATE
+  ' led3-loop led3-task ACTIVATE
+  led1-task CURRENT-TASK ! ;
+
+\ Scheduler principal
+: RUN-TASKS
+  INIT-TASKS
+  BEGIN
+    WAKE-TASKS
+    PAUSE
+  KEY? UNTIL ;
+```
+
+### Solution 2 : Asyncio MicroPython (actuel)
+
+Notre implémentation utilise `uasyncio` de MicroPython :
+
+```python
+async def task1():
+    while True:
+        pin2.value(1)
+        await asyncio.sleep_ms(500)
+        pin2.value(0)
+        await asyncio.sleep_ms(500)
+
+async def task2():
+    while True:
+        pin3.value(1)
+        await asyncio.sleep_ms(300)
+        pin3.value(0)
+        await asyncio.sleep_ms(300)
+
+# Lance tout
+asyncio.gather(task1(), task2())
+```
+
+### Solution 3 : Timer Hardware ESP32
+
+Utiliser les timers matériels pour déclencher des interruptions :
+
+```forth
+\ À implémenter avec primitives timer
+VARIABLE LED1-STATE
+VARIABLE LED2-STATE
+
+: LED1-ISR ( -- )
+  \ Handler interruption timer1
+  LED1-STATE @ 0= IF
+    2 PIN-HIGH 1 LED1-STATE !
+  ELSE
+    2 PIN-LOW 0 LED1-STATE !
+  THEN ;
+
+: INIT-TIMER1 ( us -- )
+  \ Configure timer1 pour us microsecondes
+  \ Appelle LED1-ISR à chaque expiration
+  \ [Code spécifique ESP32 à implémenter]
+  ;
+
+: DEMO-TIMER
+  500000 INIT-TIMER1  \ 500ms
+  BEGIN KEY? UNTIL ;
+```
+
+### Comparaison des approches
+
+| Approche | Avantages | Inconvénients |
+|----------|-----------|---------------|
+| **Coopératif Forth** | Contrôle total, léger | Nécessite PAUSE régulier |
+| **Asyncio Python** | Simple, robuste | Dépend de MicroPython |
+| **Timer hardware** | Précis, sans surcharge | Limité par nb de timers |
+
+### État/Événements entre tâches
+
+Communication via **variables partagées** :
+
+```forth
+VARIABLE SENSOR-VALUE
+VARIABLE ALARM-FLAG
+
+: sensor-task ( -- )
+  BEGIN
+    read-sensor SENSOR-VALUE !
+    SENSOR-VALUE @ 100 > IF
+      1 ALARM-FLAG !
+    THEN
+    100 SLEEP
+  AGAIN ;
+
+: alarm-task ( -- )
+  BEGIN
+    ALARM-FLAG @ IF
+      led-blink
+      0 ALARM-FLAG !
+    THEN
+    50 SLEEP
+  AGAIN ;
+```
+
+---
+
+*Guide rédigé pour le projet Forth ESP32-S3 - Version 1.1*

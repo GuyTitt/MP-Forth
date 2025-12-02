@@ -1,39 +1,39 @@
-# début du "main" version "66"
-version = ('main.py', 66)
+# début du "main" version "72"
+version = ('main.py', 72)
 
 import uasyncio as asyncio
 import sys
 
-# MON_DOSSIER est défini par boot.py et dans globals()
 MON_DOSSIER = globals().get('MON_DOSSIER', '')
 
 def charger(nom):
-    """Charger un module Python"""
     chemin = MON_DOSSIER + nom if MON_DOSSIER else nom
     try:
         module_name = chemin.rstrip('.py').replace('/', '.')
         __import__(module_name)
-        src = "lib1" if MON_DOSSIER else "racine"
-        print(f"  {nom:20} → chargé [{src}]")
     except Exception as e:
         print(f"ERREUR chargement {nom} : {e}")
+        sys.print_exception(e)
+        raise
 
 print("\n" + "="*72)
-print(" CHARGEMENT DES MODULES FORTH (main.py v66)")
+print(" CHARGEMENT MODULES FORTH (main.py v72)")
 print("="*72)
 
-# Chargement des modules
-for module in [
-    'memoire.py', 'piles.py', 'dictionnaire.py', 
-    'core_primitives.py', 'core_system.py', 'core_system1.py']:
-    charger(module)
+charger('memoire.py')
+charger('piles.py')
+charger('dictionnaire.py')
+charger('core_primitives.py')
+charger('core_system.py')
+charger('core_system1.py')
+charger('core_level2.py')      # AJOUTÉ
+charger('core_hardware.py')    # AJOUTÉ
 
 print("="*72)
 
-# Imports après chargement
 from memoire import mem
 from piles import piles
-from dictionnaire import create_colon_word, align_here, find
+from dictionnaire import create_colon_word, align_here, find, see_word
 from core_primitives import (
     OP_EXIT, OP_LIT, OP_ZBRANCH, OP_BRANCH,
     MARK_THEN, MARK_BEGIN, MARK_DO, MARK_LOOP,
@@ -42,44 +42,54 @@ from core_primitives import (
 
 compile_stack = []
 
-# ================================================
-# Gestion des structures de contrôle
-# ================================================
 async def handle_control_flow(opcode, token):
-    if opcode == MARK_THEN:
+    """Gestion des structures de contrôle IF/THEN/DO/LOOP/BEGIN"""
+    
+    if opcode == MARK_THEN:  # 999
         if not compile_stack:
             print("? THEN sans IF")
             mem.state = 0
             return
         addr = compile_stack.pop()
         mem.wpoke(addr, mem.here)
-    elif opcode == MARK_BEGIN:
+        
+    elif opcode == MARK_BEGIN:  # 998
         compile_stack.append(mem.here)
-    elif opcode == MARK_DO:
+        
+    elif opcode == MARK_DO:  # 997
+        # Sauvegarder position actuelle pour LOOP
+        compile_stack.append(mem.here)
+        # Compiler OP_DO
         mem.wpoke(mem.here, 90)
         mem.here += 4
-        compile_stack.append(mem.here)
-        mem.here += 8
-    elif opcode == MARK_LOOP:
+        
+    elif opcode == MARK_LOOP:  # 996
         if not compile_stack:
             print("? LOOP sans DO")
             mem.state = 0
             return
-        start = compile_stack.pop()
-        op = 91 if token == "LOOP" else 92
-        mem.wpoke(mem.here, op)
+        do_addr = compile_stack.pop()
+        
+        # Compiler OP_LOOP ou OP_PLOOP
+        if token == "LOOP":
+            mem.wpoke(mem.here, 91)
+        elif token == "+LOOP":
+            mem.wpoke(mem.here, 92)
+        else:
+            mem.wpoke(mem.here, 91)
         mem.here += 4
-        mem.wpoke(mem.here, start - mem.here - 4)
+        
+        # Compiler offset de saut vers DO (saut arrière)
+        offset = do_addr - mem.here
+        mem.wpoke(mem.here, offset & 0xFFFFFFFF)
         mem.here += 4
-        mem.wpoke(start, mem.here)
 
-# ================================================
-# Exécution
-# ================================================
 async def execute_primitive(opcode):
     func = dispatch.get(opcode)
     if func:
         await func()
+    else:
+        print(f"? primitive {opcode} inconnue")
 
 async def execute_colon(addr):
     mem.ip = addr
@@ -97,23 +107,30 @@ async def execute_colon(addr):
         else:
             await execute_colon(opc)
 
-# ================================================
-# REPL
-# ================================================
 async def repl():
     print("\n" + "="*72)
-    print(" FORTH ESP32-S3 v66 – SYSTÈME FONCTIONNEL")
-    print(" Tape : WORDS  ou  5 DUP * .")
+    print(" FORTH ESP32-S3 v72 – SYSTÈME COMPLET")
+    print("="*72)
+    print(" Commandes:")
+    print("   WORDS       - Liste tous les mots")
+    print("   .S          - Affiche la pile")
+    print("   SEE <mot>   - Décompile un mot")
+    print(" GPIO:")
+    print("   <pin> PIN-OUT PIN-HIGH - Configure et active")
+    print("   <pin> PIN-IN PIN-READ  - Configure et lit")
+    print(" Time:")
+    print("   <ms> MS     - Pause en millisecondes")
+    print("   TICKS-MS    - Timestamp actuel")
     print("="*72 + "\n")
 
     while True:
         try:
             prompt = "ok> " if mem.state == 0 else ": "
-            line = input(prompt).strip()
-            if not line:
+            line = input(prompt)
+            if not line.strip():
                 continue
 
-            # Supprimer commentaires ( ... )
+            # Supprimer commentaires
             cleaned = ""
             in_paren = False
             for c in line:
@@ -132,23 +149,23 @@ async def repl():
             while i < len(tokens):
                 t = tokens[i].upper()
 
-                # Cas 1 : COLON
+                # COLON
                 if t == ":":
                     if i + 1 >= len(tokens):
                         print("? nom manquant après :")
                         mem.state = 0
                         break
-                    name = tokens[i+1]
+                    name = tokens[i+1].upper()
                     align_here()
-                    create_colon_word(name, mem.here)
+                    create_colon_word(name, 0)
                     mem.state = 1
                     i += 2
                     continue
 
-                # Cas 2 : SEMI
+                # SEMI
                 if t == ";":
                     if mem.state == 1:
-                        mem.wpoke(mem.here, 0)  # OP_EXIT
+                        mem.wpoke(mem.here, 0)  # EXIT
                         mem.here += 4
                         mem.state = 0
                     else:
@@ -156,7 +173,16 @@ async def repl():
                     i += 1
                     continue
 
-                # Cas 3 : Nombre
+                # SEE
+                if t == "SEE":
+                    if i + 1 >= len(tokens):
+                        print("? SEE : nom manquant")
+                    else:
+                        await see_word(tokens[i+1].upper())
+                    i += 2
+                    continue
+
+                # Nombre
                 if t.lstrip('-').isdigit():
                     n = int(t)
                     if mem.state == 0:
@@ -169,7 +195,7 @@ async def repl():
                     i += 1
                     continue
 
-                # Cas 4 : Mot du dictionnaire
+                # Mot du dictionnaire
                 opcode, immediate = find(t)
                 if opcode is None:
                     print(f"? {t}")
@@ -184,6 +210,7 @@ async def repl():
                     else:
                         await execute_colon(opcode)
                 else:
+                    # Compilation
                     if immediate:
                         await execute_primitive(opcode)
                     elif opcode in (OP_ZBRANCH, OP_BRANCH):
@@ -198,12 +225,17 @@ async def repl():
                         mem.here += 4
                 i += 1
 
+        except KeyboardInterrupt:
+            print("\n[Ctrl+C] Interruption")
+            mem.state = 0
+            compile_stack.clear()
         except Exception as e:
             print(f"\n[ERREUR] {e}")
+            sys.print_exception(e)
             mem.state = 0
             compile_stack.clear()
 
-print("main.py v66 chargé – démarrage REPL\n")
+print("Système prêt\n")
 asyncio.run(repl())
 
-# fin du "main" version "66"
+# fin du "main" version "72"
