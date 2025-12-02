@@ -1,23 +1,27 @@
-# début du "main" version "72"
-version = ('main.py', 72)
+# début du "main" version "74"
+version = ('main.py', 74)
 
 import uasyncio as asyncio
 import sys
 
 MON_DOSSIER = globals().get('MON_DOSSIER', '')
 
+USE_FORTH_STDLIB = False
+DEBUG_CONTROL_FLOW = True
+
 def charger(nom):
     chemin = MON_DOSSIER + nom if MON_DOSSIER else nom
     try:
         module_name = chemin.rstrip('.py').replace('/', '.')
         __import__(module_name)
+        print(f"  ✓ {nom}")
     except Exception as e:
-        print(f"ERREUR chargement {nom} : {e}")
+        print(f"  ✗ {nom}: {e}")
         sys.print_exception(e)
         raise
 
 print("\n" + "="*72)
-print(" CHARGEMENT MODULES FORTH (main.py v72)")
+print(" CHARGEMENT MODULES FORTH (main.py v74)")
 print("="*72)
 
 charger('memoire.py')
@@ -26,8 +30,8 @@ charger('dictionnaire.py')
 charger('core_primitives.py')
 charger('core_system.py')
 charger('core_system1.py')
-charger('core_level2.py')      # AJOUTÉ
-charger('core_hardware.py')    # AJOUTÉ
+charger('core_level2.py')
+charger('core_hardware.py')
 
 print("="*72)
 
@@ -43,7 +47,12 @@ from core_primitives import (
 compile_stack = []
 
 async def handle_control_flow(opcode, token):
-    """Gestion des structures de contrôle IF/THEN/DO/LOOP/BEGIN"""
+    """Gestion structures de contrôle - CORRECTION: gère tous les cas"""
+    
+    if DEBUG_CONTROL_FLOW:
+        print(f"[CTRL] handle_control_flow(opcode={opcode}, token='{token}') @ here={mem.here:#x}")
+        tmp = [f'{a:#x}' for a in compile_stack]
+        print(f"[CTRL] compile_stack = {tmp}")
     
     if opcode == MARK_THEN:  # 999
         if not compile_stack:
@@ -51,17 +60,23 @@ async def handle_control_flow(opcode, token):
             mem.state = 0
             return
         addr = compile_stack.pop()
+        if DEBUG_CONTROL_FLOW:
+            print(f"[CTRL] THEN: patching {addr:#x} → {mem.here:#x}")
         mem.wpoke(addr, mem.here)
         
     elif opcode == MARK_BEGIN:  # 998
+        if DEBUG_CONTROL_FLOW:
+            print(f"[CTRL] BEGIN: push {mem.here:#x}")
         compile_stack.append(mem.here)
         
     elif opcode == MARK_DO:  # 997
-        # Sauvegarder position actuelle pour LOOP
-        compile_stack.append(mem.here)
-        # Compiler OP_DO
+        if DEBUG_CONTROL_FLOW:
+            print(f"[CTRL] DO: compiling OP_DO(90) @ {mem.here:#x}")
         mem.wpoke(mem.here, 90)
         mem.here += 4
+        if DEBUG_CONTROL_FLOW:
+            print(f"[CTRL] DO: push {mem.here - 4:#x}")
+        compile_stack.append(mem.here - 4)
         
     elif opcode == MARK_LOOP:  # 996
         if not compile_stack:
@@ -70,17 +85,24 @@ async def handle_control_flow(opcode, token):
             return
         do_addr = compile_stack.pop()
         
-        # Compiler OP_LOOP ou OP_PLOOP
+        if DEBUG_CONTROL_FLOW:
+            print(f"[CTRL] {token}: pop do_addr={do_addr:#x}")
+        
         if token == "LOOP":
-            mem.wpoke(mem.here, 91)
+            opcode_loop = 91
         elif token == "+LOOP":
-            mem.wpoke(mem.here, 92)
+            opcode_loop = 92
         else:
-            mem.wpoke(mem.here, 91)
+            opcode_loop = 91
+        
+        if DEBUG_CONTROL_FLOW:
+            print(f"[CTRL] {token}: compiling OP({opcode_loop}) @ {mem.here:#x}")
+        mem.wpoke(mem.here, opcode_loop)
         mem.here += 4
         
-        # Compiler offset de saut vers DO (saut arrière)
         offset = do_addr - mem.here
+        if DEBUG_CONTROL_FLOW:
+            print(f"[CTRL] {token}: offset={offset:#x} @ {mem.here:#x}")
         mem.wpoke(mem.here, offset & 0xFFFFFFFF)
         mem.here += 4
 
@@ -98,7 +120,7 @@ async def execute_colon(addr):
         mem.ip += 4
         if opc == 0:
             break
-        if opc == 21:  # OP_LIT
+        if opc == 21:
             val = mem.wpeek(mem.ip)
             mem.ip += 4
             await piles.push(val)
@@ -109,18 +131,13 @@ async def execute_colon(addr):
 
 async def repl():
     print("\n" + "="*72)
-    print(" FORTH ESP32-S3 v72 – SYSTÈME COMPLET")
+    print(" FORTH ESP32-S3 v74 – SYSTÈME COMPLET")
     print("="*72)
-    print(" Commandes:")
-    print("   WORDS       - Liste tous les mots")
-    print("   .S          - Affiche la pile")
-    print("   SEE <mot>   - Décompile un mot")
-    print(" GPIO:")
-    print("   <pin> PIN-OUT PIN-HIGH - Configure et active")
-    print("   <pin> PIN-IN PIN-READ  - Configure et lit")
-    print(" Time:")
-    print("   <ms> MS     - Pause en millisecondes")
-    print("   TICKS-MS    - Timestamp actuel")
+    print(f" DEBUG_CONTROL_FLOW = {DEBUG_CONTROL_FLOW}")
+    print("="*72)
+    print(" Commandes: WORDS .S SEE <mot>")
+    print(" GPIO: <pin> PIN-OUT PIN-HIGH")
+    print(" NeoPixel: 48 1 NEO-INIT  48 0 255 0 0 NEO-SET  48 NEO-WRITE")
     print("="*72 + "\n")
 
     while True:
@@ -130,7 +147,6 @@ async def repl():
             if not line.strip():
                 continue
 
-            # Supprimer commentaires
             cleaned = ""
             in_paren = False
             for c in line:
@@ -156,6 +172,8 @@ async def repl():
                         mem.state = 0
                         break
                     name = tokens[i+1].upper()
+                    if DEBUG_CONTROL_FLOW:
+                        print(f"[COLON] Début '{name}' @ here={mem.here:#x}")
                     align_here()
                     create_colon_word(name, 0)
                     mem.state = 1
@@ -165,7 +183,9 @@ async def repl():
                 # SEMI
                 if t == ";":
                     if mem.state == 1:
-                        mem.wpoke(mem.here, 0)  # EXIT
+                        if DEBUG_CONTROL_FLOW:
+                            print(f"[COLON] EXIT @ {mem.here:#x}")
+                        mem.wpoke(mem.here, 0)
                         mem.here += 4
                         mem.state = 0
                     else:
@@ -188,6 +208,8 @@ async def repl():
                     if mem.state == 0:
                         await piles.push(n)
                     else:
+                        if DEBUG_CONTROL_FLOW:
+                            print(f"[COMPILE] LIT {n} @ {mem.here:#x}")
                         mem.wpoke(mem.here, OP_LIT)
                         mem.here += 4
                         mem.wpoke(mem.here, n)
@@ -211,16 +233,22 @@ async def repl():
                         await execute_colon(opcode)
                 else:
                     # Compilation
-                    if immediate:
+                    if DEBUG_CONTROL_FLOW and t in ("DO", "LOOP", "+LOOP", "IF", "THEN"):
+                        print(f"[COMPILE] {t} opcode={opcode} imm={immediate}")
+                    
+                    # CORRECTION CRITIQUE: Gérer les marqueurs AVANT de tester immediate
+                    if opcode in (MARK_THEN, MARK_BEGIN, MARK_DO, MARK_LOOP):
+                        await handle_control_flow(opcode, t)
+                    elif immediate:
                         await execute_primitive(opcode)
                     elif opcode in (OP_ZBRANCH, OP_BRANCH):
                         mem.wpoke(mem.here, opcode)
                         mem.here += 4
                         compile_stack.append(mem.here)
                         mem.here += 4
-                    elif opcode in (MARK_THEN, MARK_BEGIN, MARK_DO, MARK_LOOP):
-                        await handle_control_flow(opcode, t)
                     else:
+                        if DEBUG_CONTROL_FLOW and mem.state == 1:
+                            print(f"[COMPILE] {t} opcode={opcode} @ {mem.here:#x}")
                         mem.wpoke(mem.here, opcode)
                         mem.here += 4
                 i += 1
@@ -238,4 +266,4 @@ async def repl():
 print("Système prêt\n")
 asyncio.run(repl())
 
-# fin du "main" version "72"
+# fin du "main" version "74"
