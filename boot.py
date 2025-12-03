@@ -1,13 +1,36 @@
-# début du "boot" version "24"
-version = ('boot.py', 24)
+# début du "boot" version "25"
+version = ('boot.py', 25)
 import os
+import sys
+import time
 
 MON_DOSSIER = "lib1/" if "lib1" in os.listdir() else ""
 
 print("\n" + "="*72)
-print(" FORTH ESP32-S3 – INITIALISATION (boot.py v24)")
+print(" FORTH ESP32-S3 – INITIALISATION (boot.py v25)")
 print(f" Dossier modules → '{MON_DOSSIER or 'racine'}'")
 print("="*72)
+
+# ==========================================
+# PAUSE INTERRUPTIBLE AU DÉMARRAGE
+# ==========================================
+print("\nDémarrage dans 3 secondes...")
+print("Appuyez sur Ctrl+C pour annuler et rester en REPL Python\n")
+
+try:
+    for i in range(3, 0, -1):
+        print(f"  {i}...", end='')
+#        sys.stdout.flush()
+        time.sleep(1)
+    print(" GO!\n")
+except KeyboardInterrupt:
+    print("\n\n[ANNULÉ] Démarrage Forth interrompu")
+    print("Vous êtes en REPL Python - tapez 'import main' pour lancer Forth\n")
+    sys.exit()  # Arrête boot.py, reste en REPL Python
+
+# ==========================================
+# AFFICHAGE VERSIONS MODULES
+# ==========================================
 
 # Modules requis par le système
 modules = [
@@ -26,7 +49,7 @@ modules = [
 # Modules optionnels
 modules_optionnels = [
     'tests.py',
-    'stdlib.f4',
+    'stdlib.v',
 ]
 
 for nom in modules:
@@ -45,6 +68,6 @@ for nom in modules:
         print(f"  {nom:25} → [ERREUR: introuvable]")
 
 print("="*72)
-print("boot.py v24 terminé – MON_DOSSIER dans globals()\n")
+print("boot.py v25 terminé – MON_DOSSIER dans globals()\n")
 
-# fin du "boot" version "24"
+# fin du "boot" version "25"
