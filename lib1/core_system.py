@@ -1,5 +1,5 @@
-# début du "core_system" version "46"
-version = ('core_system.py', 46)
+# début du "core_system" version "47"
+version = ('core_system.py', 47)
 
 MON_DOSSIER = globals().get('MON_DOSSIER', '')
 
@@ -21,8 +21,6 @@ if not __core_sys_done:
     )
 
     OP_RECURSE   = 200
-    OP_VARIABLE  = 202
-    OP_CONSTANT  = 203
     OP_WORDS     = 204
     OP_SEE       = 205
     OP_VARIABLES = 206
@@ -34,25 +32,6 @@ if not __core_sys_done:
         code_addr = mem.wpeek(mem.latest + 4)
         mem.wpoke(mem.here, code_addr)
         mem.here += 4
-
-    async def prim_variable():
-        name = await piles.pop_string()
-        from dictionnaire import align_here
-        align_here()
-        create(name, OP_VARIABLE)
-        mem.wpoke(mem.here, 0)
-        mem.here += 4
-        print(f"VARIABLE {name}")
-
-    async def prim_constant():
-        value = await piles.pop()
-        name  = await piles.pop_string()
-        from dictionnaire import align_here
-        align_here()
-        create(name, OP_LIT)
-        mem.wpoke(mem.here, value)
-        mem.here += 4
-        print(f"CONSTANT {name} = {value}")
 
     async def prim_words():
         categories = {
@@ -94,13 +73,6 @@ if not __core_sys_done:
         print()
 
     async def prim_see():
-        """SEE mot - Décompile un mot
-        
-        CORRECTION: Accepte le nom directement depuis la ligne de commande,
-        pas depuis la pile
-        """
-        # Le nom sera fourni par main.py via un mécanisme spécial
-        # Pour l'instant, on laisse l'ancienne version qui attend la pile
         if piles.depth() == 0:
             print("? SEE : pile vide")
             return
@@ -130,10 +102,11 @@ if not __core_sys_done:
             name = "".join(chr(mem.cpeek(addr + i)) for i in range(length))
             code_addr = addr + length + (4 - (length + 1) % 4) % 4
             code = mem.wpeek(code_addr)
-            if code == OP_VARIABLE:
+            # OP_VARIABLE=202, OP_CONSTANT=21 (OP_LIT)
+            if code == 202:
                 val = mem.wpeek(code_addr + 4)
                 print(f"VARIABLE {name:12} = {val}  @ 0x{code_addr + 4:08X}")
-            elif code == OP_LIT:
+            elif code == 21:
                 val = mem.wpeek(code_addr + 4)
                 print(f"CONSTANT {name:12} = {val}")
             addr = link
@@ -149,8 +122,6 @@ if not __core_sys_done:
 
     dispatch.update({
         OP_RECURSE:   prim_recurse,
-        OP_VARIABLE:  prim_variable,
-        OP_CONSTANT:  prim_constant,
         OP_WORDS:     prim_words,
         OP_SEE:       prim_see,
         OP_VARIABLES: prim_variables,
@@ -190,8 +161,7 @@ if not __core_sys_done:
     c("SEE", OP_SEE); c("VARIABLES", OP_VARIABLES)
     c("RECURSE", OP_RECURSE, immediate=True)
     c("MIN", 150); c("MAX", 151)
-    c("VARIABLE", OP_VARIABLE, immediate=True)
-    c("CONSTANT", OP_CONSTANT, immediate=True)
+    # VARIABLE et CONSTANT retirés - gérés dans main.py
     c("HERE", 129); c("ALLOT", 130); c(",", 131); c("C,", 132)
     print()
 
@@ -203,4 +173,4 @@ if not __core_sys_done:
     print(f"core_system.py v{version[1]} chargé")
     __core_sys_done = True
 
-# fin du "core_system" version "46"
+# fin du "core_system" version "47"
