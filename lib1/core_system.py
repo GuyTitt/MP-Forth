@@ -1,5 +1,12 @@
-# début du "core_system" version "50"
-version = ('core_system.py', 50)
+# début du "core_system" version "51"
+version = ('core_system.py', 51)
+
+"""
+VOCABULAIRE SYSTÈME - Primitives Python (à transcoder en assembleur)
+
+Ces ~20 primitives forment le noyau minimal qui sera réécrit en assembleur.
+Tout le reste (stdlib.v) sera défini EN FORTH et compilé au démarrage.
+"""
 
 MON_DOSSIER = globals().get('MON_DOSSIER', '')
 
@@ -41,9 +48,10 @@ if not __core_sys_done:
         mem.here += 4
 
     async def prim_dovar():
-        """DOVAR - Comportement d'une VARIABLE
+        """DOVAR - Comportement VARIABLE
         
-        Empile l'adresse de stockage (mem.ip pointe déjà dessus)
+        Empile l'adresse de stockage.
+        mem.ip pointe déjà sur la zone de données.
         """
         await piles.push(mem.ip)
 
@@ -56,9 +64,9 @@ if not __core_sys_done:
             "HARDWARE": list(range(400, 500)),
         }
         
-        # Scanner dictionnaire
         all_words = {}
         addr = mem.latest
+        
         while addr:
             link = mem.wpeek(addr)
             addr += 4
@@ -72,7 +80,6 @@ if not __core_sys_done:
             all_words[name] = {'code': code, 'imm': immediate}
             addr = link
         
-        # Afficher par catégorie
         for cat_name, opcodes in categories.items():
             words_in_cat = []
             for name, info in all_words.items():
@@ -83,16 +90,20 @@ if not __core_sys_done:
                 print(f"\n{cat_name}: ", end="")
                 print(" ".join(sorted(words_in_cat)))
         
-        # Mots utilisateur
-        user_words = [n + ("!" if all_words[n]['imm'] else "") 
-                      for n, i in all_words.items() if i['code'] >= 1000]
+        # Mots utilisateur (définis en Forth)
+        user_words = []
+        for name, info in all_words.items():
+            if info['code'] >= 1000:
+                marker = "!" if info['imm'] else ""
+                user_words.append(name + marker)
+        
         if user_words:
-            print(f"\nUSER: ", end="")
+            print(f"\nFORTH (stdlib.v): ", end="")
             print(" ".join(sorted(user_words)))
         print()
 
     async def prim_see():
-        """SEE - Décompile un mot (usage interne)"""
+        """SEE - Usage interne (pas pour utilisateur)"""
         if piles.depth() == 0:
             print("? SEE : pile vide")
             return
@@ -111,14 +122,13 @@ if not __core_sys_done:
         await see_word(word.strip())
 
     async def prim_variables():
-        """VARIABLES - Liste toutes les VARIABLE et CONSTANT"""
+        """VARIABLES - Liste VARIABLE et CONSTANT"""
         print("\n--- VARIABLES & CONSTANTES ---")
         
         addr = mem.latest
         variables = []
         constants = []
         
-        # Scanner dictionnaire
         while addr:
             link = mem.wpeek(addr)
             addr += 4
@@ -129,24 +139,19 @@ if not __core_sys_done:
             code_addr = addr + length + (4 - (length + 1) % 4) % 4
             code = mem.wpeek(code_addr)
             
-            # VARIABLE (OP_DOVAR = 202)
-            if code == 202:
+            if code == 202:  # VARIABLE
                 val_addr = code_addr + 4
                 val = mem.wpeek(val_addr)
                 variables.append((name, val, val_addr))
-            
-            # CONSTANT (OP_LIT = 21)
-            elif code == 21:
+            elif code == 21:  # CONSTANT
                 val = mem.wpeek(code_addr + 4)
                 constants.append((name, val))
             
             addr = link
         
-        # Afficher variables
         for name, val, addr in sorted(variables):
             print(f"VARIABLE {name:12} = {val:6}  @ 0x{addr:08X}")
         
-        # Afficher constantes
         for name, val in sorted(constants):
             print(f"CONSTANT {name:12} = {val:6}")
         
@@ -178,77 +183,65 @@ if not __core_sys_done:
     })
 
     # ==========================================
-    # CRÉATION DICTIONNAIRE
+    # CRÉATION DICTIONNAIRE (primitives seulement)
     # ==========================================
 
     def c(name, opcode, immediate=False):
-        """Helper pour créer un mot"""
+        """Helper pour créer un mot primitif"""
         create(name, opcode, immediate=immediate)
         print(name, end=" ")
 
-    print("\nCréation dictionnaire système:")
+    print("\n=== VOCABULAIRE PRIMITIF (Python → Assembleur) ===")
     
-    # Pile
-    c("EXIT", OP_EXIT, immediate=True)
+    # Pile de données
     c("DUP", 1); c("DROP", 2); c("SWAP", 3); c("OVER", 4); c("ROT", 5)
-    c("2DUP", 34); c("2DROP", 35); c("NIP", 36); c("TUCK", 37)
+    c("2DUP", 34); c("2DROP", 35)
     
     # Arithmétique
     c("+", 6); c("-", 7); c("*", 8); c("/", 9); c("MOD", 10)
-    c("NEGATE", 11); c("ABS", 12)
-    c("1+", 120); c("1-", 201); c("2*", 121); c("2/", 122)
+    c("1+", 120); c("1-", 201)
     
     # Comparaisons
-    c("<", 111); c(">", 112); c("=", 113); c("<>", 123)
-    c("0<", 114); c("0=", 115); c("0>", 124); c("U<", 119)
+    c("<", 111); c(">", 112); c("=", 113); c("0=", 115)
     
     # Mémoire
     c("@", 13); c("!", 14); c("C@", 15); c("C!", 16)
-    c("+@", 38); c("+!", 39)
     
     # I/O
     c(".", 17); c("CR", 18); c("EMIT", 19)
-    c("SPACE", 40); c("SPACES", 41)
     
     # Logique
     c("AND", 42); c("OR", 43); c("XOR", 44); c("NOT", 45)
-    c("INVERT", 125); c("LSHIFT", 126); c("RSHIFT", 127)
     
-    # Structures contrôle
+    # Structures contrôle (marqueurs pour compilation)
     c("IF", OP_ZBRANCH, immediate=True)
-    c("ELSE", OP_BRANCH, immediate=True)
     c("THEN", MARK_THEN, immediate=True)
+    c("ELSE", OP_BRANCH, immediate=True)
     c("BEGIN", MARK_BEGIN, immediate=True)
     c("UNTIL", OP_ZBRANCH, immediate=True)
-    c("WHILE", OP_ZBRANCH, immediate=True)
-    c("REPEAT", OP_BRANCH, immediate=True)
     c("AGAIN", OP_BRANCH, immediate=True)
-    
-    # Boucles
     c("DO", MARK_DO, immediate=True)
     c("LOOP", MARK_LOOP, immediate=True)
-    c("+LOOP", MARK_LOOP, immediate=True)
-    c("I", 109); c("J", 110); c("UNLOOP", 128)
+    c("I", 109)
     
     # Système
+    c("EXIT", OP_EXIT, immediate=True)
     c("WORDS", OP_WORDS)
-    c(".S", 30); c("DEPTH", 116)
-    c("SEE", OP_SEE); c("VARIABLES", OP_VARIABLES)
-    c("RECURSE", OP_RECURSE, immediate=True)
-    c("MIN", 150); c("MAX", 151)
+    c(".S", 30)
+    c("SEE", OP_SEE)
+    c("VARIABLES", OP_VARIABLES)
+    c("HERE", 129); c(",", 131)
     
-    # Compilation
-    c("HERE", 129); c("ALLOT", 130); c(",", 131); c("C,", 132)
-    
-    print()
+    print(f"\n\n{len([k for k in dispatch.keys() if k < 200])} primitives créées")
+    print("Le reste sera défini en FORTH dans stdlib.v\n")
 
-    # Charger mots avancés
+    # Charger mots avancés (CREATE/DOES>)
     try:
         import core_system1
     except ImportError:
-        print("core_system1.py absent – mots CREATE/DOES> non chargés")
+        print("core_system1.py absent – CREATE/DOES> non disponibles")
 
-    print(f"core_system.py v{version[1]} chargé")
+    print(f"core_system.py v{version[1]} chargé\n")
     __core_sys_done = True
 
-# fin du "core_system" version "50"
+# fin du "core_system" version "51"
