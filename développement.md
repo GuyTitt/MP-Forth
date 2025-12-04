@@ -1,7 +1,7 @@
-<!-- Objectifs.md Version 1.2 -->
+<!-- Objectifs.md Version 1.0 -->
 
 # Micro Forth
-
+Version 1.0
 ## Objectif final
 
 J'ai pour objectif de réaliser en bare-metal un programme n'utilisant d'autres ressources que l'assembleur.
@@ -19,8 +19,6 @@ J'ai pour objectif de réaliser en bare-metal un programme n'utilisant d'autres 
 - Les microcontrôleurs actuels sont 32 bits, à la différence des microcontrôleurs des années 70 (origine du Forth) qui étaient 8 bits. Le programme visera ce type de machine 32 bits (**Règle n°2**). Cette différence va changer : l'organisation des piles, peut-être plus de découpage en champs d'un mot, l'arithmétique, l'arithmétique flottante est plus accessible, etc.
 
 - Chaque fichier constituant le programme possède un numéro de version immuable. Au moindre changement, le numéro de version doit être incrémenté afin, pour la traçabilité, d'être sûr en voyant le numéro du contenu du fichier. Ce numéro figurera en première et dernière ligne des fichiers en commentaire avec le nom du fichier. Une variable `version` sera incluse dans les fichiers programme afin qu'un programme puisse afficher sur la console les numéros de versions réellement utilisés (**Règle n°3**). Cela facilitera les échanges d'information.
-
-- **Les fichiers seront toujours transmis dans leur intégralité** (**Règle n°4**). Jamais de fragments ou de "bribes à remplacer", car cela est source d'erreurs et nuit à la traçabilité. Chaque fichier modifié doit être fourni en entier avec son numéro de version incrémenté.
 
 - Les programmes seront écrits sous Windows sur Notepad++ et seront en UTF-8 mode Unix (fin de ligne `\n` et non `\r\n`). ESP-IDF permettra de faire la compilation, l'édition de lien et le chargement lorsque Thonny ne sera plus utilisé.
 
@@ -47,51 +45,6 @@ Le programme va se dérouler en plusieurs étapes successives :
 
 **5. Boot assembleur**
    - Un boot sera écrit en assembleur pour être lié au Forth primaire assembleur précédent
-
-## Architecture du vocabulaire Forth
-
-### Vocabulaire PRIMITIF (21 mots Python → Assembleur)
-
-Ces 21 primitives forment le noyau minimal :
-
-| Catégorie | Mots | Quantité |
-|-----------|------|----------|
-| Pile | DUP DROP SWAP OVER ROT | 5 |
-| Arithmétique | + - * / | 4 |
-| Comparaison | < = | 2 |
-| Mémoire | @ ! C@ C! | 4 |
-| Pile retour | >R R> | 2 |
-| I/O | EMIT . | 2 |
-| Contrôle | BRANCH 0BRANCH | 2 |
-
-**Total : 21 primitives**
-
-### Vocabulaire GÉNÉRAL (défini en Forth dans stdlib.v)
-
-Construit sur les 21 primitives :
-
-- **Pile avancée** : 2DUP 2DROP NIP TUCK PICK ROLL
-- **Arithmétique** : MOD ABS NEGATE 1+ 1- 2* 2/ MIN MAX
-- **Comparaisons** : > <> 0< 0= 0> <= >= U< U>
-- **Logique** : AND OR XOR NOT INVERT
-- **Structures** : IF THEN ELSE BEGIN UNTIL WHILE REPEAT DO LOOP
-- **Chaînes** : ." S" TYPE
-- **Système** : WORDS SEE VARIABLES HERE ALLOT , C,
-
-### Vocabulaire MATÉRIEL ESP32 (memory-mapped)
-
-Accès direct aux registres via @ et ! (pas de bibliothèque Python) :
-
-- **GPIO** : PIN-OUT PIN-IN PIN-HIGH PIN-LOW PIN-READ
-- **Time** : MS US TICKS-MS TICKS-DIFF
-- **NeoPixel** : NEO-INIT NEO-SET NEO-WRITE NEO-FILL NEO-CLEAR
-
-### Vocabulaire APPLICATIF (exemples)
-
-Fonctions de haut niveau pour applications :
-
-- **Utilitaires** : LED-INIT BUTTON-WAIT BLINK
-- **Mathématiques** : SQRT GCD LCM FIB
-- **Algorithmes** : BUBBLE-SORT BINARY-SEARCH
-
-<!-- Objectifs.md Version 1.2 -->
+   
+<!-- Objectifs.md Version 1.0 -->
+   
