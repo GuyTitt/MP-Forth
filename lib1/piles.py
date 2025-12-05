@@ -1,5 +1,5 @@
-# début du "piles" version "15"
-version = ('piles.py', 15)
+# début du "piles" version "16"
+version = ('piles.py', 16)
 import uasyncio as asyncio
 
 class Piles:
@@ -12,12 +12,12 @@ class Piles:
     async def push(self, value):
         self.mem.sp -= 4
         if self.mem.sp < self.mem.here + 0x1000:
-            raise MemoryError(f"Data stack overflow (sp={self.mem.sp:#x}, here={self.mem.here:#x})")
+            raise MemoryError(f"✗ Pile données saturée (sp={self.mem.sp:#x})")
         self.mem.wpoke(self.mem.sp, value & 0xFFFFFFFF)
     
     async def pop(self):
         if self.mem.sp >= self.SP0:
-            raise IndexError(f"Data stack underflow (sp={self.mem.sp:#x})")
+            raise IndexError(f"✗ Pile données vide")
         val = self.mem.wpeek(self.mem.sp)
         self.mem.sp += 4
         return val
@@ -25,12 +25,12 @@ class Piles:
     async def rpush(self, value):
         self.mem.rp -= 4
         if self.mem.rp < self.mem.sp:
-            raise MemoryError(f"Return stack overflow (rp={self.mem.rp:#x}, sp={self.mem.sp:#x})")
+            raise MemoryError(f"✗ Pile retour saturée (rp={self.mem.rp:#x})")
         self.mem.wpoke(self.mem.rp, value)
     
     async def rpop(self):
         if self.mem.rp >= self.RP0:
-            raise IndexError(f"Return stack underflow (rp={self.mem.rp:#x})")
+            raise IndexError(f"✗ Pile retour vide")
         val = self.mem.wpeek(self.mem.rp)
         self.mem.rp += 4
         return val
@@ -51,4 +51,4 @@ class Piles:
         return (self.RP0 - self.mem.rp) // 4
 
 piles = Piles()
-# fin du "piles" version "15"
+# fin du "piles" version "16"

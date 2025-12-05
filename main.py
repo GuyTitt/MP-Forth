@@ -7,7 +7,7 @@ import sys
 MON_DOSSIER = globals().get('MON_DOSSIER', '')
 
 USE_FORTH_STDLIB = True
-DEBUG_LOAD = True  # Afficher détails chargement fichiers
+DEBUG_LOAD = False  # Désactiver messages DEBUG
 
 # ==========================================
 # CHARGEMENT MODULES
@@ -53,7 +53,7 @@ compile_stack = []
 # ==========================================
 
 async def handle_control_flow(opcode, token):
-    """Gère IF/THEN/BEGIN/DO/LOOP"""
+    """Gère IF/THEN/BEGIN/DO/LOOP/WHILE/REPEAT"""
     if opcode == MARK_THEN:
         if not compile_stack:
             print("? THEN sans IF")
@@ -93,8 +93,7 @@ async def execute_primitive(opcode):
     if func:
         await func()
     else:
-        if DEBUG_LOAD:
-            print(f"[DEBUG] Primitive {opcode} inconnue")
+        print(f"? Primitive {opcode} inconnue")
 
 async def execute_colon(addr):
     """Exécute mot COLON/VARIABLE/CONSTANT"""
@@ -445,8 +444,7 @@ async def repl():
             print("ok> ", end='')
         except Exception as e:
             print(f"\n✗ {e}")
-            if DEBUG_LOAD:
-                sys.print_exception(e)
+            # Pas de trace détaillée, juste le message
             mem.state = 0
             compile_stack.clear()
             print("ok> ", end='')

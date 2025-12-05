@@ -232,6 +232,8 @@ if not __core_sys_done:
     c("ELSE", OP_BRANCH, immediate=True)
     c("BEGIN", MARK_BEGIN, immediate=True)
     c("UNTIL", OP_ZBRANCH, immediate=True)
+    c("WHILE", OP_ZBRANCH, immediate=True)
+    c("REPEAT", OP_BRANCH, immediate=True)
     c("AGAIN", OP_BRANCH, immediate=True)
     c("DO", MARK_DO, immediate=True)
     c("LOOP", MARK_LOOP, immediate=True)
