@@ -1,5 +1,9 @@
-# début du "core_system" version "50"
-version = ('core_system.py', 50)
+# début du "core_system" version "2.0"
+version = ('core_system.py', 2.0)
+
+"""
+VOCABULAIRE PRIMITIF MINIMAL - 21 primitives Python → Assembleur
+"""
 
 MON_DOSSIER = globals().get('MON_DOSSIER', '')
 
@@ -16,13 +20,13 @@ if not __core_sys_done:
 
     from core_primitives import (
         dispatch, OP_EXIT, OP_LIT, OP_ZBRANCH, OP_BRANCH,
-        MARK_THEN, MARK_BEGIN, MARK_DO, MARK_LOOP,
-        OP_MIN, OP_MAX, OP_1MINUS
+        MARK_THEN, MARK_BEGIN, MARK_DO, MARK_LOOP
     )
 
     # Opcodes système
-    OP_RECURSE   = 200
-    OP_DOVAR     = 202
+    OP_TOR       = 203  # >R
+    OP_FROMR     = 207  # R>
+    OP_DOVAR     = 202  # VARIABLE
     OP_WORDS     = 204
     OP_SEE       = 205
     OP_VARIABLES = 206
@@ -31,34 +35,25 @@ if not __core_sys_done:
     # PRIMITIVES SYSTÈME
     # ==========================================
 
-    async def prim_recurse():
-        """RECURSE - Compile appel récursif"""
-        if mem.state == 0:
-            print("? RECURSE hors définition")
-            return
-        code_addr = mem.wpeek(mem.latest + 4)
-        mem.wpoke(mem.here, code_addr)
-        mem.here += 4
+    async def prim_tor():
+        """>R"""
+        val = await piles.pop()
+        await piles.rpush(val)
+
+    async def prim_fromr():
+        """R>"""
+        val = await piles.rpop()
+        await piles.push(val)
 
     async def prim_dovar():
-        """DOVAR - Comportement d'une VARIABLE
-        
-        Empile l'adresse de stockage (mem.ip pointe déjà dessus)
-        """
+        """DOVAR - Comportement VARIABLE"""
         await piles.push(mem.ip)
 
     async def prim_words():
-        """WORDS - Affiche tous les mots par catégorie"""
-        categories = {
-            "PRIMITIVES": list(range(1, 200)),
-            "SYSTEM": list(range(200, 300)),
-            "ADVANCED": list(range(300, 400)),
-            "HARDWARE": list(range(400, 500)),
-        }
-        
-        # Scanner dictionnaire
+        """WORDS - Affiche vocabulaire organisé"""
         all_words = {}
         addr = mem.latest
+        
         while addr:
             link = mem.wpeek(addr)
             addr += 4
@@ -67,32 +62,61 @@ if not __core_sys_done:
             immediate = bool(fl & 0x80)
             addr += 1
             name = "".join(chr(mem.cpeek(addr + i)) for i in range(length))
-            code_addr = addr + length + (4 - (length + 1) % 4) % 4
+            code_addr = addr + length
+            code_addr = (code_addr + 3) & ~3
             code = mem.wpeek(code_addr)
             all_words[name] = {'code': code, 'imm': immediate}
             addr = link
         
-        # Afficher par catégorie
-        for cat_name, opcodes in categories.items():
-            words_in_cat = []
-            for name, info in all_words.items():
-                if info['code'] in opcodes:
-                    marker = "!" if info['imm'] else ""
-                    words_in_cat.append(name + marker)
-            if words_in_cat:
-                print(f"\n{cat_name}: ", end="")
-                print(" ".join(sorted(words_in_cat)))
+        # Catégoriser intelligemment
+        primitives = []
+        forth_base = []
+        forth_hardware = []
+        forth_app = []
         
-        # Mots utilisateur
-        user_words = [n + ("!" if all_words[n]['imm'] else "") 
-                      for n, i in all_words.items() if i['code'] >= 1000]
-        if user_words:
-            print(f"\nUSER: ", end="")
-            print(" ".join(sorted(user_words)))
+        # Mots hardware connus
+        hardware_keywords = ['PIN', 'GPIO', 'NEO', 'TICKS', 'MS', 'US']
+        
+        # Mots applicatifs connus
+        app_keywords = ['LED', 'BUTTON', 'BLINK', 'TASK', 'PAUSE', 'SLEEP',
+                        'FIB', 'SQRT', 'GCD', 'RANDOM', 'SORT']
+        
+        for name, info in all_words.items():
+            marker = "!" if info['imm'] else ""
+            word = name + marker
+            
+            # Primitives : opcode < 210
+            if info['code'] < 210:
+                primitives.append(word)
+            # Hardware : contient mot-clé hardware
+            elif any(kw in name for kw in hardware_keywords):
+                forth_hardware.append(word)
+            # Applicatif : contient mot-clé app
+            elif any(kw in name for kw in app_keywords):
+                forth_app.append(word)
+            # Base : tout le reste (2DUP, MOD, IF, etc.)
+            else:
+                forth_base.append(word)
+        
+        print(f"\nPRIMITIVES (21 → ASM): ", end="")
+        print(" ".join(sorted(primitives)))
+        
+        if forth_base:
+            print(f"\nFORTH BASE: ", end="")
+            print(" ".join(sorted(forth_base)))
+        
+        if forth_hardware:
+            print(f"\nFORTH HARDWARE: ", end="")
+            print(" ".join(sorted(forth_hardware)))
+        
+        if forth_app:
+            print(f"\nFORTH APPLICATIF: ", end="")
+            print(" ".join(sorted(forth_app)))
+        
         print()
 
     async def prim_see():
-        """SEE - Décompile un mot (usage interne)"""
+        """SEE interne"""
         if piles.depth() == 0:
             print("? SEE : pile vide")
             return
@@ -111,14 +135,13 @@ if not __core_sys_done:
         await see_word(word.strip())
 
     async def prim_variables():
-        """VARIABLES - Liste toutes les VARIABLE et CONSTANT"""
+        """VARIABLES"""
         print("\n--- VARIABLES & CONSTANTES ---")
         
         addr = mem.latest
         variables = []
         constants = []
         
-        # Scanner dictionnaire
         while addr:
             link = mem.wpeek(addr)
             addr += 4
@@ -126,27 +149,23 @@ if not __core_sys_done:
             length = fl & 0x7F
             addr += 1
             name = "".join(chr(mem.cpeek(addr + i)) for i in range(length))
-            code_addr = addr + length + (4 - (length + 1) % 4) % 4
+            code_addr = addr + length
+            code_addr = (code_addr + 3) & ~3
             code = mem.wpeek(code_addr)
             
-            # VARIABLE (OP_DOVAR = 202)
             if code == 202:
                 val_addr = code_addr + 4
                 val = mem.wpeek(val_addr)
                 variables.append((name, val, val_addr))
-            
-            # CONSTANT (OP_LIT = 21)
             elif code == 21:
                 val = mem.wpeek(code_addr + 4)
                 constants.append((name, val))
             
             addr = link
         
-        # Afficher variables
         for name, val, addr in sorted(variables):
             print(f"VARIABLE {name:12} = {val:6}  @ 0x{addr:08X}")
         
-        # Afficher constantes
         for name, val in sorted(constants):
             print(f"CONSTANT {name:12} = {val:6}")
         
@@ -155,7 +174,7 @@ if not __core_sys_done:
         print()
 
     async def prim_dot_s():
-        """.S - Affiche pile sans la modifier"""
+        """.S"""
         depth = piles.depth()
         print(f"<{depth}>:", end=" ")
         i = mem.sp
@@ -169,7 +188,8 @@ if not __core_sys_done:
     # ==========================================
 
     dispatch.update({
-        OP_RECURSE:   prim_recurse,
+        OP_TOR:       prim_tor,
+        OP_FROMR:     prim_fromr,
         OP_DOVAR:     prim_dovar,
         OP_WORDS:     prim_words,
         OP_SEE:       prim_see,
@@ -178,77 +198,60 @@ if not __core_sys_done:
     })
 
     # ==========================================
-    # CRÉATION DICTIONNAIRE
+    # CRÉATION DICTIONNAIRE MINIMAL (21 primitives)
     # ==========================================
 
     def c(name, opcode, immediate=False):
-        """Helper pour créer un mot"""
         create(name, opcode, immediate=immediate)
         print(name, end=" ")
 
-    print("\nCréation dictionnaire système:")
+    print("\n╔════════════════════════════════════════════════════════════════╗")
+    print("║ VOCABULAIRE PRIMITIF - 21 mots Python → Assembleur            ║")
+    print("╚════════════════════════════════════════════════════════════════╝")
     
-    # Pile
-    c("EXIT", OP_EXIT, immediate=True)
+    # Pile (5)
     c("DUP", 1); c("DROP", 2); c("SWAP", 3); c("OVER", 4); c("ROT", 5)
-    c("2DUP", 34); c("2DROP", 35); c("NIP", 36); c("TUCK", 37)
     
-    # Arithmétique
-    c("+", 6); c("-", 7); c("*", 8); c("/", 9); c("MOD", 10)
-    c("NEGATE", 11); c("ABS", 12)
-    c("1+", 120); c("1-", 201); c("2*", 121); c("2/", 122)
+    # Arithmétique (4)
+    c("+", 6); c("-", 7); c("*", 8); c("/", 9)
     
-    # Comparaisons
-    c("<", 111); c(">", 112); c("=", 113); c("<>", 123)
-    c("0<", 114); c("0=", 115); c("0>", 124); c("U<", 119)
+    # Comparaisons (2)
+    c("<", 111); c("=", 113)
     
-    # Mémoire
+    # Mémoire (4)
     c("@", 13); c("!", 14); c("C@", 15); c("C!", 16)
-    c("+@", 38); c("+!", 39)
     
-    # I/O
-    c(".", 17); c("CR", 18); c("EMIT", 19)
-    c("SPACE", 40); c("SPACES", 41)
+    # Pile retour (2)
+    c(">R", OP_TOR); c("R>", OP_FROMR)
     
-    # Logique
-    c("AND", 42); c("OR", 43); c("XOR", 44); c("NOT", 45)
-    c("INVERT", 125); c("LSHIFT", 126); c("RSHIFT", 127)
+    # I/O (2)
+    c("EMIT", 19); c(".", 17)
     
-    # Structures contrôle
+    # Structures (marqueurs compilation)
+    print("\n\nMarqueurs:", end=" ")
     c("IF", OP_ZBRANCH, immediate=True)
-    c("ELSE", OP_BRANCH, immediate=True)
     c("THEN", MARK_THEN, immediate=True)
+    c("ELSE", OP_BRANCH, immediate=True)
     c("BEGIN", MARK_BEGIN, immediate=True)
     c("UNTIL", OP_ZBRANCH, immediate=True)
     c("WHILE", OP_ZBRANCH, immediate=True)
     c("REPEAT", OP_BRANCH, immediate=True)
     c("AGAIN", OP_BRANCH, immediate=True)
-    
-    # Boucles
     c("DO", MARK_DO, immediate=True)
     c("LOOP", MARK_LOOP, immediate=True)
-    c("+LOOP", MARK_LOOP, immediate=True)
-    c("I", 109); c("J", 110); c("UNLOOP", 128)
     
     # Système
+    print("\n\nSystème:", end=" ")
+    c("EXIT", OP_EXIT, immediate=True)
     c("WORDS", OP_WORDS)
-    c(".S", 30); c("DEPTH", 116)
-    c("SEE", OP_SEE); c("VARIABLES", OP_VARIABLES)
-    c("RECURSE", OP_RECURSE, immediate=True)
-    c("MIN", 150); c("MAX", 151)
+    c(".S", 30)
+    c("SEE", OP_SEE)
+    c("VARIABLES", OP_VARIABLES)
     
-    # Compilation
-    c("HERE", 129); c("ALLOT", 130); c(",", 131); c("C,", 132)
+    print(f"\n\n✓ 21 primitives + marqueurs + système")
+    print(f"✓ Prêt pour chargement stdlib_minimal.v v2.0\n")
     
-    print()
-
-    # Charger mots avancés
-    try:
-        import core_system1
-    except ImportError:
-        print("core_system1.py absent – mots CREATE/DOES> non chargés")
-
-    print(f"core_system.py v{version[1]} chargé")
+    print(f"core_system.py v{version[1]} chargé\n")
     __core_sys_done = True
 
-# fin du "core_system" version "50"
+# fin du "core_system" version "2.0"

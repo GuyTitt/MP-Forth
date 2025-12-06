@@ -1,5 +1,5 @@
-# début du "main" version "78"
-version = ('main.py', 78)
+# début du "main" version "2.0"
+version = ('main.py', 2.0)
 
 import uasyncio as asyncio
 import sys
@@ -7,8 +7,7 @@ import sys
 MON_DOSSIER = globals().get('MON_DOSSIER', '')
 
 USE_FORTH_STDLIB = True
-DEBUG_CONTROL_FLOW = False
-DEBUG_VARIABLE = False  # Debug VARIABLE/CONSTANT
+DEBUG_LOAD = False
 
 # ==========================================
 # CHARGEMENT MODULES
@@ -27,7 +26,7 @@ def charger(nom):
         raise
 
 print("\n" + "="*72)
-print(" CHARGEMENT MODULES FORTH (main.py v78)")
+print(" CHARGEMENT MODULES FORTH (main.py v2.0)")
 print("="*72)
 
 charger('memoire.py')
@@ -35,9 +34,6 @@ charger('piles.py')
 charger('dictionnaire.py')
 charger('core_primitives.py')
 charger('core_system.py')
-charger('core_system1.py')
-charger('core_level2.py')
-charger('core_hardware.py')
 
 print("="*72)
 
@@ -57,11 +53,7 @@ compile_stack = []
 # ==========================================
 
 async def handle_control_flow(opcode, token):
-    """Gère IF/THEN/BEGIN/DO/LOOP pendant la compilation"""
-    if DEBUG_CONTROL_FLOW:
-        print(f"[CTRL] {token} opcode={opcode} @ here={mem.here:#x}")
-        print(f"[CTRL] compile_stack = {[f'{a:#x}' for a in compile_stack]}")
-    
+    """Gère IF/THEN/BEGIN/DO/LOOP/WHILE/REPEAT"""
     if opcode == MARK_THEN:
         if not compile_stack:
             print("? THEN sans IF")
@@ -74,7 +66,7 @@ async def handle_control_flow(opcode, token):
         compile_stack.append(mem.here)
         
     elif opcode == MARK_DO:
-        mem.wpoke(mem.here, 90)  # OP_DO
+        mem.wpoke(mem.here, 90)
         mem.here += 4
         compile_stack.append(mem.here - 4)
         
@@ -84,11 +76,9 @@ async def handle_control_flow(opcode, token):
             mem.state = 0
             return
         do_addr = compile_stack.pop()
-        
-        opcode_loop = 91 if token == "LOOP" else 92  # LOOP ou +LOOP
+        opcode_loop = 91 if token == "LOOP" else 92
         mem.wpoke(mem.here, opcode_loop)
         mem.here += 4
-        
         offset = do_addr - mem.here
         mem.wpoke(mem.here, offset & 0xFFFFFFFF)
         mem.here += 4
@@ -103,167 +93,303 @@ async def execute_primitive(opcode):
     if func:
         await func()
     else:
-        print(f"? primitive {opcode} inconnue")
+        print(f"? Primitive {opcode} inconnue")
 
 async def execute_colon(addr):
-    """Exécute un mot COLON ou VARIABLE/CONSTANT
-    
-    3 cas possibles:
-    1. VARIABLE (opcode 202 = OP_DOVAR) : empile adresse puis EXIT
-    2. CONSTANT (opcode 21 = OP_LIT) : empile valeur puis EXIT  
-    3. Mot COLON : séquence opcodes terminée par EXIT
-    """
-    saved_ip = mem.ip  # Sauvegarder IP appelant
+    """Exécute mot COLON/VARIABLE/CONSTANT"""
+    saved_ip = mem.ip
     mem.ip = addr
     
-    # Lire premier opcode
     opc = mem.wpeek(mem.ip)
     mem.ip += 4
     
-    if DEBUG_VARIABLE:
-        print(f"[EXEC] execute_colon(0x{addr:x}) opc={opc}")
-    
-    # Cas VARIABLE (OP_DOVAR)
+    # VARIABLE (202)
     if opc == 202:
-        addr_data = mem.ip  # Adresse de la valeur
-        await piles.push(addr_data)
-        if DEBUG_VARIABLE:
-            val = mem.wpeek(addr_data)
-            print(f"[VAR] Push addr=0x{addr_data:x} (val={val})")
-        mem.ip = saved_ip  # Restaurer IP
+        await piles.push(mem.ip)
+        mem.ip = saved_ip
         return
     
-    # Cas CONSTANT (OP_LIT sans boucle)
+    # CONSTANT (21)
     if opc == 21:
         val = mem.wpeek(mem.ip)
         mem.ip += 4
-        # Vérifier si c'est bien une CONSTANT (pas de code après)
         next_opc = mem.wpeek(mem.ip) if mem.ip < len(mem.ram) - 4 else 0
-        if next_opc == 0 or mem.ip >= mem.here:  # EXIT ou fin dictionnaire
+        if next_opc == 0 or mem.ip >= mem.here:
             await piles.push(val)
-            if DEBUG_VARIABLE:
-                print(f"[CONST] Push val={val}")
             mem.ip = saved_ip
             return
-        # Sinon c'est un LIT dans un mot COLON, reculer IP
         mem.ip -= 8
     
-    # Cas COLON : reculer IP et exécuter séquence
+    # Mot COLON
     mem.ip = addr
     
     while True:
         opc = mem.wpeek(mem.ip)
         mem.ip += 4
         
-        if opc == 0:  # EXIT
+        if opc == 0:
             break
-        elif opc == 21:  # LIT
+        elif opc == 21:
             val = mem.wpeek(mem.ip)
             mem.ip += 4
             await piles.push(val)
-        elif opc < 1000:  # Primitive
+        elif opc < 1000:
             await execute_primitive(opc)
-        else:  # Autre mot COLON
+        else:
             await execute_colon(opc)
     
-    mem.ip = saved_ip  # Restaurer IP
+    mem.ip = saved_ip
 
 # ==========================================
-# GESTION STDLIB.V
+# TRAITEMENT LIGNE FORTH
 # ==========================================
 
-async def load_stdlib():
-    """Charge stdlib.v au démarrage"""
-    if not USE_FORTH_STDLIB:
-        return
-    
-    try:
-        chemin = MON_DOSSIER + 'stdlib.v' if MON_DOSSIER else 'stdlib.v'
-        with open(chemin, 'r', encoding='utf-8') as f:
-            print("Chargement stdlib.v...")
-            definitions = 0
-            
-            for num_ligne, ligne in enumerate(f, 1):
-                ligne = ligne.strip()
-                if not ligne or ligne.startswith('\\') or ligne.startswith('( '):
-                    continue
-                
-                tokens = ligne.split()
-                if tokens and tokens[0] == ':' and len(tokens) > 1:
-                    print(f"  Définition: {tokens[1]}")
-                    definitions += 1
-            
-            print(f"stdlib.v scanné ({definitions} définitions détectées)")
-            print("Note: Exécution complète stdlib.v à implémenter\n")
-    except OSError:
-        print("stdlib.v non trouvé - primitives uniquement\n")
-    except Exception as e:
-        print(f"Erreur stdlib.v: {e}\n")
+async def execute_line(line, show_errors=True):
+    """Exécute une ligne Forth"""
+    # Retirer commentaires () et \
+    cleaned = ""
+    in_paren = False
+    for c in line:
+        if c == '\\':
+            break
+        if c == '(':
+            in_paren = True
+        elif c == ')' and in_paren:
+            in_paren = False
+        elif not in_paren:
+            cleaned += c
 
-# ==========================================
-# REPL - INTERPRÉTATION
-# ==========================================
-
-async def process_token_interpret(t):
-    """Traite un token en mode interprétation"""
-    # Nombre ?
-    if t.lstrip('-').isdigit():
-        await piles.push(int(t))
+    tokens = cleaned.split()
+    if not tokens:
         return True
-    
-    # Mot du dictionnaire ?
-    opcode, immediate = find(t)
-    if opcode is None:
-        print(f"? {t}")
-        return False
-    
-    # Exécuter
-    if opcode < 1000:
-        await execute_primitive(opcode)
-    else:
-        await execute_colon(opcode)
+
+    i = 0
+    while i < len(tokens):
+        t = tokens[i].upper()
+
+        # COLON
+        if t == ":":
+            if i + 1 >= len(tokens):
+                if show_errors:
+                    print("? : nom manquant")
+                mem.state = 0
+                return False
+            name = tokens[i+1].upper()
+            align_here()
+            create_colon_word(name, 0)
+            mem.state = 1
+            i += 2
+            continue
+
+        # SEMI
+        if t == ";":
+            if mem.state == 1:
+                mem.wpoke(mem.here, 0)
+                mem.here += 4
+                mem.state = 0
+            else:
+                if show_errors:
+                    print("? ; hors définition")
+                return False
+            i += 1
+            continue
+
+        # VARIABLE
+        if t == "VARIABLE":
+            if i + 1 >= len(tokens):
+                if show_errors:
+                    print("? VARIABLE : nom manquant")
+                i += 1
+                continue
+            name = tokens[i+1].upper()
+            if mem.state == 0:
+                align_here()
+                create(name, 202)
+                mem.wpoke(mem.here, 0)
+                mem.here += 4
+            i += 2
+            continue
+
+        # CONSTANT
+        if t == "CONSTANT":
+            if i + 1 >= len(tokens):
+                if show_errors:
+                    print("? CONSTANT : nom manquant")
+                i += 1
+                continue
+            if piles.depth() == 0:
+                if show_errors:
+                    print("? CONSTANT : valeur manquante")
+                i += 2
+                continue
+            value = await piles.pop()
+            name = tokens[i+1].upper()
+            if mem.state == 0:
+                align_here()
+                create(name, 21)
+                mem.wpoke(mem.here, value)
+                mem.here += 4
+            i += 2
+            continue
+
+        # ASSIMILE <fichier>
+        if t == "ASSIMILE":
+            if i + 1 >= len(tokens):
+                print("? ASSIMILE : fichier manquant")
+                i += 1
+                continue
+            
+            fichier = tokens[i+1].strip('<>')
+            await load_forth_file(fichier, verbose=True)
+            i += 2
+            continue
+
+        # Nombre
+        if t.lstrip('-').isdigit():
+            n = int(t)
+            if mem.state == 0:
+                await piles.push(n)
+            else:
+                mem.wpoke(mem.here, OP_LIT)
+                mem.here += 4
+                mem.wpoke(mem.here, n)
+                mem.here += 4
+            i += 1
+            continue
+
+        # Mot du dictionnaire
+        opcode, immediate = find(t)
+        if opcode is None:
+            if show_errors:
+                print(f"? {t}")
+            mem.state = 0
+            return False
+
+        # Interprétation
+        if mem.state == 0:
+            if opcode < 1000:
+                await execute_primitive(opcode)
+            else:
+                await execute_colon(opcode)
+        # Compilation
+        else:
+            if opcode in (MARK_THEN, MARK_BEGIN, MARK_DO, MARK_LOOP):
+                await handle_control_flow(opcode, t)
+            elif immediate:
+                await execute_primitive(opcode)
+            elif opcode in (OP_ZBRANCH, OP_BRANCH):
+                mem.wpoke(mem.here, opcode)
+                mem.here += 4
+                compile_stack.append(mem.here)
+                mem.here += 4
+            else:
+                mem.wpoke(mem.here, opcode)
+                mem.here += 4
+        
+        i += 1
     
     return True
 
 # ==========================================
-# REPL - COMPILATION
+# CHARGEMENT FICHIERS FORTH - VERSION AMÉLIORÉE
 # ==========================================
 
-async def process_token_compile(t):
-    """Traite un token en mode compilation"""
-    # Nombre ?
-    if t.lstrip('-').isdigit():
-        n = int(t)
-        mem.wpoke(mem.here, OP_LIT)
-        mem.here += 4
-        mem.wpoke(mem.here, n)
-        mem.here += 4
+async def load_forth_file(filename, verbose=False):
+    """Charge et exécute un fichier .txt (vocabulaire Forth)"""
+    chemin = MON_DOSSIER + filename if MON_DOSSIER else filename
+    
+    if verbose:
+        print(f"[ASSIMILE] Chargement {filename}:", end="")
+    
+    try:
+        with open(chemin, 'r', encoding='utf-8') as f:
+            definitions = []
+            erreurs = []
+            ligne_num = 0
+            
+            for ligne in f:
+                ligne_num += 1
+                ligne = ligne.strip()
+                
+                # Ignorer commentaires et séparateurs
+                if not ligne or ligne.startswith('\\'):
+                    continue
+                if all(c in '-=│║╔╗╚╝' for c in ligne):
+                    continue
+                
+                try:
+                    success = await execute_line(ligne, show_errors=False)
+                    
+                    if not success:
+                        erreurs.append((ligne_num, ligne[:50]))
+                    else:
+                        # Compter définitions
+                        if ligne.strip().startswith(':'):
+                            parts = ligne.split()
+                            if len(parts) > 1:
+                                word_name = parts[1]
+                                definitions.append(word_name)
+                                if verbose:
+                                    print(f" {word_name}", end="")
+                    
+                    mem.state = 0
+                    compile_stack.clear()
+                    
+                except Exception as e:
+                    erreurs.append((ligne_num, str(e)))
+                    mem.state = 0
+                    compile_stack.clear()
+            
+            if verbose:
+                print()  # Nouvelle ligne après les mots
+                print(f"[ASSIMILE] {filename}: {len(definitions)} définitions")
+                
+                if erreurs:
+                    print(f"\n[ERREURS] {len(erreurs)} erreur(s):")
+                    for num, msg in erreurs[:5]:
+                        print(f"  Ligne {num}: {msg}")
+                    if len(erreurs) > 5:
+                        print(f"  ... et {len(erreurs)-5} autre(s)")
+                    print()
+            
+            return len(erreurs) == 0
+    
+    except OSError:
+        print(f"\n✗ Fichier {filename} introuvable")
+        return False
+    except Exception as e:
+        print(f"\n✗ Erreur {filename}: {e}")
+        if DEBUG_LOAD:
+            sys.print_exception(e)
+        return False
+
+# ==========================================
+# CHARGEMENT BIBLIOTHÈQUES AU DÉMARRAGE
+# ==========================================
+
+async def load_stdlib():
+    """Charge bibliothèques Forth au démarrage"""
+    if not USE_FORTH_STDLIB:
         return True
     
-    # Mot du dictionnaire ?
-    opcode, immediate = find(t)
-    if opcode is None:
-        print(f"? {t}")
-        mem.state = 0
-        return False
+    print("\n" + "="*72)
+    print(" CHARGEMENT BIBLIOTHÈQUES FORTH")
+    print("="*72)
     
-    # Structures de contrôle ?
-    if opcode in (MARK_THEN, MARK_BEGIN, MARK_DO, MARK_LOOP):
-        await handle_control_flow(opcode, t)
-    # Mot immédiat ?
-    elif immediate:
-        await execute_primitive(opcode)
-    # IF/ELSE (branchements) ?
-    elif opcode in (OP_ZBRANCH, OP_BRANCH):
-        mem.wpoke(mem.here, opcode)
-        mem.here += 4
-        compile_stack.append(mem.here)
-        mem.here += 4
-    # Mot normal : compiler opcode
-    else:
-        mem.wpoke(mem.here, opcode)
-        mem.here += 4
+    # Ordre de chargement important
+    bibliotheques = [
+        ('base.txt', True),      # Vocabulaire de base
+        ('esp32.txt', True),     # Matériel ESP32
+        ('utils.txt', False),    # Utilitaires (optionnel)
+    ]
     
+    for nom, obligatoire in bibliotheques:
+        result = await load_forth_file(nom, verbose=True)
+        if not result and obligatoire:
+            print(f"✗ ERREUR: {nom} est obligatoire!")
+            return False
+    
+    print("="*72 + "\n")
     return True
 
 # ==========================================
@@ -272,162 +398,58 @@ async def process_token_compile(t):
 
 async def repl():
     print("\n" + "="*72)
-    print(" FORTH ESP32-S3 v78 – SYSTÈME COMPLET")
+    print(" FORTH ESP32-S3 v2.0 — SYSTÈME MINIMAL")
     print("="*72)
-    print(" Commandes:")
-    print("   WORDS .S SEE <mot> VARIABLES")
-    print("   VARIABLE <nom> - Crée variable")
-    print("   CONSTANT <nom> - Crée constante")
-    print(" GPIO: <pin> PIN-OUT PIN-HIGH")
-    print(" NeoPixel: 48 1 NEO-INIT  48 0 255 0 0 NEO-SET  48 NEO-WRITE")
+    print(" 21 primitives + bibliothèques Forth = système complet")
     print("="*72 + "\n")
     
-    await load_stdlib()
+    if not await load_stdlib():
+        print("✗ Échec chargement bibliothèques")
+        return
+    
+    # Afficher vocabulaire
+    print("Vocabulaire chargé:")
+    await execute_primitive(204)  # OP_WORDS
+    
+    print("\nCommandes:")
+    print("  WORDS  .S  SEE <mot>  VARIABLES")
+    print("  <fichier.txt> ASSIMILE  - Charge vocabulaire")
+    print("\nok> ", end='')
     
     while True:
         try:
-            prompt = "ok> " if mem.state == 0 else ": "
-            line = input(prompt)
+            line = input()
             if not line.strip():
                 continue
 
-            # Retirer commentaires ()
-            cleaned = ""
-            in_paren = False
-            for c in line:
-                if c == '(':
-                    in_paren = True
-                elif c == ')' and in_paren:
-                    in_paren = False
-                elif not in_paren:
-                    cleaned += c
-
-            tokens = cleaned.split()
-            if not tokens:
+            # SEE spécial
+            tokens = line.strip().upper().split()
+            if len(tokens) == 2 and tokens[0] == "SEE":
+                await see_word(tokens[1])
+                print("ok> ", end='')
                 continue
 
-            i = 0
-            while i < len(tokens):
-                t = tokens[i].upper()
-
-                # ===== COLON =====
-                if t == ":":
-                    if i + 1 >= len(tokens):
-                        print("? nom manquant après :")
-                        mem.state = 0
-                        break
-                    name = tokens[i+1].upper()
-                    align_here()
-                    create_colon_word(name, 0)
-                    mem.state = 1
-                    i += 2
-                    continue
-
-                # ===== SEMI =====
-                if t == ";":
-                    if mem.state == 1:
-                        mem.wpoke(mem.here, 0)  # EXIT
-                        mem.here += 4
-                        mem.state = 0
-                    else:
-                        print("? ; hors définition")
-                    i += 1
-                    continue
-
-                # ===== VARIABLE =====
-                if t == "VARIABLE":
-                    if i + 1 >= len(tokens):
-                        print("? VARIABLE : nom manquant")
-                        i += 1
-                        continue
-                    
-                    name = tokens[i+1].upper()
-                    
-                    if mem.state == 0:
-                        align_here()
-                        create(name, 202)  # OP_DOVAR
-                        mem.wpoke(mem.here, 0)  # Valeur initiale
-                        mem.here += 4
-                        if DEBUG_VARIABLE:
-                            print(f"VARIABLE {name} @ 0x{mem.here-4:x}")
-                        else:
-                            print(f"VARIABLE {name}")
-                    else:
-                        print("? VARIABLE en mode compilation non supporté")
-                    
-                    i += 2
-                    continue
-
-                # ===== CONSTANT =====
-                if t == "CONSTANT":
-                    if i + 1 >= len(tokens):
-                        print("? CONSTANT : nom manquant")
-                        i += 1
-                        continue
-                    if piles.depth() == 0:
-                        print("? CONSTANT : valeur manquante")
-                        i += 2
-                        continue
-                    
-                    value = await piles.pop()
-                    name = tokens[i+1].upper()
-                    
-                    if mem.state == 0:
-                        align_here()
-                        create(name, 21)  # OP_LIT
-                        mem.wpoke(mem.here, value)
-                        mem.here += 4
-                        if DEBUG_VARIABLE:
-                            print(f"CONSTANT {name} = {value} @ 0x{mem.here-4:x}")
-                        else:
-                            print(f"CONSTANT {name} = {value}")
-                    else:
-                        print("? CONSTANT en mode compilation non supporté")
-                    
-                    i += 2
-                    continue
-
-                # ===== SEE =====
-                if t == "SEE":
-                    if i + 1 < len(tokens):
-                        await see_word(tokens[i+1].upper())
-                    else:
-                        print("? SEE : nom manquant")
-                    i += 2
-                    continue
-
-                # ===== LOAD =====
-                if t == "LOAD":
-                    if i + 1 >= len(tokens):
-                        print("? LOAD : nom fichier manquant")
-                        i += 1
-                        continue
-                    # TODO: implémenter LOAD complet
-                    print(f"LOAD {tokens[i+1]} - à implémenter")
-                    i += 2
-                    continue
-
-                # ===== TRAITEMENT GÉNÉRAL =====
-                if mem.state == 0:
-                    if not await process_token_interpret(t):
-                        break
-                else:
-                    if not await process_token_compile(t):
-                        break
-                
-                i += 1
+            # Exécuter ligne
+            await execute_line(line)
+            
+            # Prompt
+            if mem.state == 0:
+                print("ok> ", end='')
+            else:
+                print(": ", end='')
 
         except KeyboardInterrupt:
-            print("\n[Ctrl+C] Interruption")
+            print("\n[Ctrl+C]")
             mem.state = 0
             compile_stack.clear()
+            print("ok> ", end='')
         except Exception as e:
-            print(f"\n[ERREUR] {e}")
-            sys.print_exception(e)
+            print(f"\n✗ {e}")
             mem.state = 0
             compile_stack.clear()
+            print("ok> ", end='')
 
 print("Système prêt\n")
 asyncio.run(repl())
 
-# fin du "main" version "78"
+# fin du "main" version "2.0"

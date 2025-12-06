@@ -1,5 +1,5 @@
-# début du "dictionnaire" version "30"
-version = ('dictionnaire.py', 30)
+# début du "dictionnaire" version "2.0"
+version = ('dictionnaire.py', 2.0)
 from memoire import mem
 
 def align_here():
@@ -38,17 +38,17 @@ def find(name):
     while addr:
         count += 1
         if count > 200:
-            print(f"[ERROR] find(): >200 itérations")
+            print(f"[ERREUR] find(): >200 itérations")
             return None, False
         
         if addr < 0 or addr >= len(mem.ram) - 8:
-            print(f"[ERROR] find(): adresse invalide {addr:#x}")
+            print(f"[ERREUR] find(): adresse invalide {addr:#x}")
             return None, False
         
         try:
             link = mem.wpeek(addr)
         except Exception as e:
-            print(f"[ERROR] find(): lecture link @ {addr:#x} : {e}")
+            print(f"[ERREUR] find(): lecture link @ {addr:#x} : {e}")
             return None, False
         
         addr += 4
@@ -57,16 +57,18 @@ def find(name):
         immediate = bool(fl & 0x80)
         addr += 1
         wname = "".join(chr(mem.cpeek(addr + i)) for i in range(length))
-        code_addr = addr + length + (4 - (length + 1) % 4) % 4
+        code_addr = addr + length
+        # Alignement sur 4 octets
+        code_addr = (code_addr + 3) & ~3
         
         if code_addr >= len(mem.ram) - 4:
-            print(f"[ERROR] code_addr {code_addr:#x} hors limites")
+            print(f"[ERREUR] code_addr {code_addr:#x} hors limites")
             return None, False
         
         try:
             code = mem.wpeek(code_addr)
         except Exception as e:
-            print(f"[ERROR] lecture code @ {code_addr:#x} : {e}")
+            print(f"[ERREUR] lecture code @ {code_addr:#x} : {e}")
             return None, False
         
         if wname.upper() == name:
@@ -78,45 +80,113 @@ def find(name):
     
     return None, False
 
+def find_word_by_code(code):
+    """Trouve le nom d'un mot à partir de son opcode"""
+    addr = mem.latest
+    
+    while addr:
+        link = mem.wpeek(addr)
+        addr += 4
+        fl = mem.cpeek(addr)
+        length = fl & 0x7F
+        addr += 1
+        name = "".join(chr(mem.cpeek(addr + i)) for i in range(length))
+        code_addr = addr + length
+        code_addr = (code_addr + 3) & ~3
+        word_code = mem.wpeek(code_addr)
+        
+        if word_code == code:
+            return name
+        
+        addr = link
+        if addr == 0:
+            break
+    
+    return None
+
 async def see_word(name):
+    """Décompile un mot avec noms lisibles"""
     code, immediate = find(name.upper())
     if code is None:
         print(f"? {name} introuvable")
         return
+    
     if code < 1000:
         print(f"{name} est une primitive (opcode {code})")
         return
-    print(f"{name}{'*' if immediate else ''}: ", end="")
+    
+    # Mot COLON ou CONSTANT ou VARIABLE
     ip = code
-    while True:
-        opc = mem.wpeek(ip)
+    first_opcode = mem.wpeek(ip)
+    
+    # VARIABLE (202)
+    if first_opcode == 202:
+        print(f"{name} est une VARIABLE @ {ip:#x}")
+        return
+    
+    # CONSTANT (21 suivi d'une valeur puis EXIT)
+    if first_opcode == 21:
         ip += 4
-        if opc == 0:
-            print("EXIT")
-            break
-        if opc == 21:
-            val = mem.wpeek(ip)
+        val = mem.wpeek(ip)
+        ip += 4
+        next_op = mem.wpeek(ip)
+        if next_op == 0:
+            print(f"{name} est une CONSTANT = {val}")
+            return
+    
+    # Mot COLON normal
+    print(f"\n{name}{'*' if immediate else ''}: ", end="")
+    ip = code
+    tokens = []
+    
+    # Limites sécurité
+    max_tokens = 100
+    
+    while ip < mem.here and len(tokens) < max_tokens:
+        try:
+            opc = mem.wpeek(ip)
             ip += 4
-            print(val, end=" ")
-            continue
-        found = False
-        a = mem.latest
-        while a:
-            link = mem.wpeek(a)
-            a += 4
-            fl = mem.cpeek(a)
-            length = fl & 0x7F
-            a += 1
-            wname = "".join(chr(mem.cpeek(a + i)) for i in range(length))
-            code_addr = a + length + (4 - (length + 1) % 4) % 4
-            wcode = mem.wpeek(code_addr)
-            if wcode == opc:
-                print(wname, end=" ")
-                found = True
+            
+            if opc == 0:  # EXIT
+                tokens.append("EXIT")
                 break
-            a = link
-        if not found:
-            print(f"[{opc}]", end=" ")
+            elif opc == 21:  # LIT
+                if ip >= mem.here:
+                    tokens.append("[LIT?]")
+                    break
+                val = mem.wpeek(ip)
+                ip += 4
+                tokens.append(str(val))
+            elif opc == 23:  # ZBRANCH (IF)
+                if ip >= mem.here:
+                    tokens.append("[ZBRANCH?]")
+                    break
+                target = mem.wpeek(ip)
+                ip += 4
+                tokens.append(f"ZBRANCH[→{target:#x}]")
+            elif opc == 22:  # BRANCH
+                if ip >= mem.here:
+                    tokens.append("[BRANCH?]")
+                    break
+                target = mem.wpeek(ip)
+                ip += 4
+                tokens.append(f"BRANCH[→{target:#x}]")
+            else:
+                # Chercher le nom du mot
+                word_name = find_word_by_code(opc)
+                if word_name:
+                    tokens.append(word_name)
+                else:
+                    tokens.append(f"[{opc}]")
+        except Exception as e:
+            tokens.append(f"[ERR:{e}]")
+            break
+    
+    # Afficher avec retours à la ligne tous les 10 mots
+    for i, tok in enumerate(tokens):
+        print(tok, end=" ")
+        if (i + 1) % 10 == 0 and i < len(tokens) - 1:
+            print("\n  ", end="")
     print()
 
-# fin du "dictionnaire" version "30"
+# fin du "dictionnaire" version "2.0"

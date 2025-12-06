@@ -1,5 +1,5 @@
-# début du "core_primitives" version "36"
-version = ('core_primitives.py', 36)
+# début du "core_primitives" version "2.0"
+version = ('core_primitives.py', 2.0)
 
 try:
     __core_prim_done
@@ -91,7 +91,7 @@ if not __core_prim_done:
     MARK_DO     = 997
     MARK_LOOP   = 996
 
-    OP_WORDS    = 29
+    OP_WORDS    = 204
     OP_DOTSS    = 30
     OP_DEPTH    = 116
     OP_TESTS    = 31
@@ -312,4 +312,4 @@ __all__ = [
     "OP_DEBUG", "OP_HEX", "OP_DECIMAL", "OP_MIN", "OP_MAX", "OP_1MINUS", "OP_1PLUS"
 ]
 
-# fin du "core_primitives" version "36"
+# fin du "core_primitives" version "2.0"
