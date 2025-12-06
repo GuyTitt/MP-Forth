@@ -1,10 +1,10 @@
-# début du "memoire" version "17"
-version = ('memoire.py', 17)
+# début du "memoire" version "2.0"
+version = ('memoire.py', 2.0)
 import gc
 
 class Memoire:
     def __init__(self):
-        # CORRECTION: Détection automatique de la RAM disponible
+        # Détection automatique de la RAM disponible
         gc.collect()
         ram_libre = gc.mem_free()
         
@@ -63,4 +63,4 @@ class Memoire:
 
 mem = Memoire()
 
-# fin du "memoire" version "17"
+# fin du "memoire" version "2.0"

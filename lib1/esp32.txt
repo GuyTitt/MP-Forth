@@ -1,0 +1,187 @@
+\ ============================================================================
+\ ESP32.TXT - Bibliothèque matériel ESP32-S3
+\ Version 2.0
+\ ============================================================================
+\ Accès matériel ESP32-S3 via primitives Python
+\ Nécessite: base.txt
+
+\ ============================================================================
+\ NOTA BENE
+\ ============================================================================
+\ Les mots GPIO, TIME et NEOPIXEL sont implémentés en Python
+\ dans le module materiel.py (opcodes 400+)
+\ 
+\ Ces définitions Forth sont des WRAPPERS pour documentation
+\ Le code réel est exécuté par les primitives Python
+
+\ ============================================================================
+\ CONSTANTES GPIO
+\ ============================================================================
+
+\ Pins usuelles ESP32-S3
+2 CONSTANT GPIO2
+3 CONSTANT GPIO3
+4 CONSTANT GPIO4
+48 CONSTANT GPIO48   \ NeoPixel LilyGO T-Display-S3
+
+\ ============================================================================
+\ GPIO - Déclarations (implémentation Python)
+\ ============================================================================
+
+\ Ces mots sont définis en Python (materiel.py)
+\ Leur documentation est ici pour référence
+
+\ PIN-OUT ( pin -- )
+\   Configure pin en sortie
+
+\ PIN-IN ( pin -- )
+\   Configure pin en entrée
+
+\ PIN-HIGH ( pin -- )
+\   Met pin à HIGH (3.3V)
+
+\ PIN-LOW ( pin -- )
+\   Met pin à LOW (0V)
+
+\ PIN-READ ( pin -- flag )
+\   Lit l'état du pin (0 ou 1)
+
+\ PIN-TOGGLE ( pin -- )
+\   Inverse l'état du pin
+
+\ PIN-PULLUP ( pin -- )
+\   Configure avec résistance pull-up
+
+\ PIN-PULLDOWN ( pin -- )
+\   Configure avec résistance pull-down
+
+\ ============================================================================
+\ TIME - Déclarations (implémentation Python)
+\ ============================================================================
+
+\ MS ( n -- )
+\   Pause de n millisecondes
+
+\ US ( n -- )
+\   Pause de n microsecondes
+
+\ TICKS-MS ( -- n )
+\   Timestamp en millisecondes
+
+\ TICKS-US ( -- n )
+\   Timestamp en microsecondes
+
+\ TICKS-DIFF ( t1 t2 -- diff )
+\   Différence entre timestamps
+
+\ ============================================================================
+\ NEOPIXEL - Déclarations (implémentation Python)
+\ ============================================================================
+
+\ NEO-INIT ( pin n-leds -- )
+\   Initialise n LEDs WS2812 sur pin
+\   Exemple: 48 1 NEO-INIT
+
+\ NEO-SET ( pin led r g b -- )
+\   Définit couleur RGB d'une LED
+\   Exemple: 48 0 255 0 0 NEO-SET  ( LED 0 en rouge )
+
+\ NEO-WRITE ( pin -- )
+\   Affiche les changements
+\   Exemple: 48 NEO-WRITE
+
+\ NEO-FILL ( pin r g b -- )
+\   Remplit toutes les LEDs
+\   Exemple: 48 0 255 0 NEO-FILL  ( Tout en vert )
+
+\ NEO-CLEAR ( pin -- )
+\   Éteint toutes les LEDs
+\   Exemple: 48 NEO-CLEAR
+
+\ ============================================================================
+\ MACROS UTILITAIRES GPIO
+\ ============================================================================
+
+: PIN-INIT-OUT ( pin -- )
+  \ Initialise pin en sortie et met à LOW
+  DUP PIN-OUT PIN-LOW ;
+
+: PIN-INIT-IN ( pin -- )
+  \ Initialise pin en entrée avec pull-up
+  DUP PIN-IN PIN-PULLUP ;
+
+: PIN-PULSE ( pin duration -- )
+  \ Génère impulsion HIGH pendant duration ms
+  SWAP DUP PIN-HIGH 
+  SWAP MS 
+  PIN-LOW ;
+
+\ ============================================================================
+\ MACROS UTILITAIRES NEOPIXEL
+\ ============================================================================
+
+: NEO-COLOR ( pin led r g b -- )
+  \ Définit couleur et affiche
+  NEO-SET DUP NEO-WRITE ;
+
+: NEO-RED ( pin led -- )
+  \ LED rouge
+  255 0 0 NEO-COLOR ;
+
+: NEO-GREEN ( pin led -- )
+  \ LED verte
+  0 255 0 NEO-COLOR ;
+
+: NEO-BLUE ( pin led -- )
+  \ LED bleue
+  0 0 255 NEO-COLOR ;
+
+: NEO-YELLOW ( pin led -- )
+  \ LED jaune
+  255 255 0 NEO-COLOR ;
+
+: NEO-CYAN ( pin led -- )
+  \ LED cyan
+  0 255 255 NEO-COLOR ;
+
+: NEO-MAGENTA ( pin led -- )
+  \ LED magenta
+  255 0 255 NEO-COLOR ;
+
+: NEO-WHITE ( pin led -- )
+  \ LED blanche
+  255 255 255 NEO-COLOR ;
+
+: NEO-OFF ( pin led -- )
+  \ Éteint LED
+  0 0 0 NEO-COLOR ;
+
+\ ============================================================================
+\ TEMPORISATION
+\ ============================================================================
+
+: DELAY ( ms -- )
+  \ Alias pour MS
+  MS ;
+
+: WAIT ( sec -- )
+  \ Attend n secondes
+  1000 * MS ;
+
+\ ============================================================================
+\ EXEMPLES D'UTILISATION
+\ ============================================================================
+
+\ Clignoter LED sur GPIO2:
+\   : BLINK-TEST  2 PIN-INIT-OUT  10 0 DO  2 PIN-TOGGLE 500 MS  LOOP ;
+
+\ NeoPixel rouge:
+\   48 1 NEO-INIT  48 0 NEO-RED
+
+\ NeoPixel arc-en-ciel (nécessite boucle):
+\   48 1 NEO-INIT
+\   360 0 DO  I ... NEO-SET  48 NEO-WRITE  10 MS  LOOP
+
+\ ============================================================================
+\ FIN ESP32.TXT v2.0
+\ ============================================================================
