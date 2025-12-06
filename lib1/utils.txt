@@ -1,0 +1,229 @@
+\ ============================================================================
+\ UTILS.TXT - Utilitaires applicatifs
+\ Version 2.0
+\ ============================================================================
+\ Nécessite: base.txt + esp32.txt
+
+\ ============================================================================
+\ LED - Fonctions utilitaires
+\ ============================================================================
+
+: LED-INIT ( pin -- )
+  \ Initialise LED (sortie + LOW)
+  DUP PIN-OUT PIN-LOW ;
+
+: LED-ON ( pin -- )
+  \ Allume LED
+  PIN-HIGH ;
+
+: LED-OFF ( pin -- )
+  \ Éteint LED
+  PIN-LOW ;
+
+: LED-TOGGLE ( pin -- )
+  \ Inverse LED
+  PIN-TOGGLE ;
+
+: BLINK ( pin times delay -- )
+  \ Fait clignoter LED n fois avec délai ms
+  >R >R 
+  DUP LED-INIT 
+  R> 0 DO 
+    DUP LED-ON R@ MS 
+    DUP LED-OFF R@ MS 
+  LOOP 
+  DROP R> DROP ;
+
+: BLINK-FAST ( pin n -- )
+  \ Clignotement rapide (100ms)
+  100 BLINK ;
+
+: BLINK-SLOW ( pin n -- )
+  \ Clignotement lent (1000ms)
+  1000 BLINK ;
+
+\ ============================================================================
+\ BOUTON - Gestion entrées
+\ ============================================================================
+
+: BUTTON-INIT ( pin -- )
+  \ Initialise bouton avec pull-up
+  DUP PIN-IN PIN-PULLUP ;
+
+: BUTTON-PRESSED? ( pin -- flag )
+  \ Vrai si bouton pressé (active-low)
+  PIN-READ 0= ;
+
+: BUTTON-WAIT ( pin -- )
+  \ Attend appui sur bouton
+  BEGIN 
+    DUP BUTTON-PRESSED? 
+  UNTIL 
+  DROP ;
+
+: BUTTON-RELEASED? ( pin -- flag )
+  \ Vrai si bouton relâché
+  PIN-READ ;
+
+: BUTTON-WAIT-RELEASE ( pin -- )
+  \ Attend relâchement bouton
+  BEGIN 
+    DUP BUTTON-RELEASED? 
+  UNTIL 
+  DROP ;
+
+\ ============================================================================
+\ PATTERNS LED
+\ ============================================================================
+
+: HEARTBEAT ( pin duration -- )
+  \ Motif battement de cœur
+  >R DUP 
+  DUP LED-ON 100 MS 
+  DUP LED-OFF 100 MS 
+  DUP LED-ON 100 MS 
+  DUP LED-OFF R> 100 - 300 - MS 
+  DROP ;
+
+: SOS ( pin -- )
+  \ Signal SOS en morse (... --- ...)
+  \ Dit: 3x court
+  3 0 DO DUP LED-ON 200 MS DUP LED-OFF 200 MS LOOP
+  500 MS
+  \ Dah: 3x long
+  3 0 DO DUP LED-ON 600 MS DUP LED-OFF 200 MS LOOP
+  500 MS
+  \ Dit: 3x court
+  3 0 DO DUP LED-ON 200 MS DUP LED-OFF 200 MS LOOP
+  DROP ;
+
+\ ============================================================================
+\ SÉQUENCES LUMINEUSES
+\ ============================================================================
+
+: CHASE-3 ( pin1 pin2 pin3 delay -- )
+  \ Chenillard 3 LEDs
+  >R 
+  OVER OVER OVER 
+  LED-INIT LED-INIT LED-INIT
+  10 0 DO 
+    OVER OVER OVER 
+    LED-ON R@ MS LED-OFF 
+    SWAP LED-ON R@ MS LED-OFF 
+    ROT LED-ON R@ MS LED-OFF 
+  LOOP 
+  R> 2DROP DROP ;
+
+: FADE-DEMO ( pin -- )
+  \ Démonstration fade (nécessite PWM)
+  \ Version simplifiée on/off rapide
+  DUP LED-INIT
+  100 0 DO 
+    DUP LED-ON I MS 
+    DUP LED-OFF 100 I - MS 
+  LOOP 
+  DROP ;
+
+\ ============================================================================
+\ NEOPIXEL - Utilitaires avancés
+\ ============================================================================
+
+: NEO-RAINBOW-STEP ( pin led hue -- )
+  \ Affiche une couleur arc-en-ciel (hue 0-359)
+  \ Conversion HSV simplifiée
+  60 / 
+  CASE 
+    0 OF 255 0 0 ENDOF       \ Rouge
+    1 OF 255 255 0 ENDOF     \ Jaune
+    2 OF 0 255 0 ENDOF       \ Vert
+    3 OF 0 255 255 ENDOF     \ Cyan
+    4 OF 0 0 255 ENDOF       \ Bleu
+    5 OF 255 0 255 ENDOF     \ Magenta
+    255 0 0                   \ Défaut rouge
+  ENDCASE 
+  NEO-SET ;
+
+: NEO-RAINBOW-CYCLE ( pin n-leds delay cycles -- )
+  \ Cycle arc-en-ciel sur n LEDs
+  >R >R >R 
+  R> R> R> 
+  0 DO 
+    360 0 DO 
+      OVER 0 DO 
+        2 PICK I J + 360 MOD NEO-RAINBOW-STEP 
+      LOOP 
+      DUP NEO-WRITE 
+      OVER MS 
+    10 +LOOP 
+  LOOP 
+  2DROP DROP ;
+
+\ ============================================================================
+\ TIMING - Utilitaires
+\ ============================================================================
+
+: BENCHMARK ( xt -- ms )
+  \ Mesure temps d'exécution d'un mot
+  TICKS-MS SWAP 
+  EXECUTE 
+  TICKS-MS SWAP - ;
+
+: STOPWATCH-START ( -- t0 )
+  \ Démarre chronomètre
+  TICKS-MS ;
+
+: STOPWATCH-STOP ( t0 -- ms )
+  \ Arrête chronomètre
+  TICKS-MS SWAP TICKS-DIFF ;
+
+\ ============================================================================
+\ MULTITÂCHE - Stubs (non implémenté)
+\ ============================================================================
+
+\ Note: Ces mots sont des placeholders
+\ L'implémentation réelle nécessite un scheduler
+
+: TASK-CREATE ( size -- tcb )
+  \ Placeholder
+  DROP 0 ;
+
+: TASK-ACTIVATE ( xt tcb -- )
+  \ Placeholder
+  2DROP ;
+
+: PAUSE ( -- )
+  \ Placeholder - cède le CPU
+  ;
+
+: SLEEP ( ms -- )
+  \ Alias pour MS (pas de vraie tâche)
+  MS ;
+
+VARIABLE CURRENT-TASK
+VARIABLE TASK-LIST
+
+\ ============================================================================
+\ EXEMPLES D'UTILISATION
+\ ============================================================================
+
+\ LED simple:
+\   2 LED-INIT
+\   2 LED-ON
+\   1000 MS
+\   2 LED-OFF
+
+\ Clignotement:
+\   2 10 500 BLINK
+
+\ SOS:
+\   2 SOS
+
+\ NeoPixel:
+\   48 1 NEO-INIT
+\   48 0 255 0 0 NEO-COLOR  ( rouge )
+\   1000 MS
+\   48 NEO-CLEAR
+
+\ ============================================================================
+\ FIN UTILS.TXT v2.0
+\ ============================================================================

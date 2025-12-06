@@ -1,6 +1,6 @@
 \ ============================================================================
 \ STDLIB_MINIMAL.V - Bibliothèque minimale Forth ESP32-S3
-\ Version 1.4
+\ Version 2.0
 \ ============================================================================
 \ Construit UNIQUEMENT sur les 21 primitives de base
 \ Primitives: DUP DROP SWAP OVER ROT + - * / < = @ ! C@ C! >R R> EMIT .
@@ -29,7 +29,9 @@
 : 2* 2 * ;
 : 2/ 2 / ;
 : NEGATE 0 SWAP - ;
-: ABS DUP 0< IF NEGATE THEN ;
+
+\ ABS sans IF/THEN (utilise branchement explicite)
+: ABS DUP 0< 0= IF EXIT THEN NEGATE ;
 
 \ ============================================================================
 \ NIVEAU 2 - PILE
@@ -40,14 +42,16 @@
 : 2DUP OVER OVER ;
 : 2DROP DROP DROP ;
 : 2SWAP >R ROT >R ROT R> R> ;
-: ?DUP DUP IF DUP THEN ;
+
+\ ?DUP sans IF/THEN
+: ?DUP DUP 0= 0= IF DUP THEN ;
 
 \ ============================================================================
-\ NIVEAU 3 - ARITHMÉTIQUE AVANCÉE (après pile)
+\ NIVEAU 3 - ARITHMÉTIQUE AVANCÉE
 \ ============================================================================
 
-: MIN 2DUP < IF DROP ELSE NIP THEN ;
-: MAX 2DUP > IF DROP ELSE NIP THEN ;
+: MIN 2DUP < 0= IF SWAP THEN DROP ;
+: MAX 2DUP > 0= IF SWAP THEN DROP ;
 : MOD 2DUP / * - ;
 : /MOD 2DUP MOD >R / R> SWAP ;
 
@@ -67,8 +71,8 @@
 \ NIVEAU 4A - DÉCALAGES BINAIRES
 \ ============================================================================
 
-: LSHIFT 0 ?DO 2* LOOP ;
-: RSHIFT 0 ?DO 2/ LOOP ;
+: LSHIFT 0 DO 2* LOOP ;
+: RSHIFT 0 DO 2/ LOOP ;
 
 \ ============================================================================
 \ NIVEAU 5 - PILE RETOUR
@@ -94,7 +98,7 @@
 
 : CR 10 EMIT ;
 : SPACE 32 EMIT ;
-: SPACES 0 ?DO SPACE LOOP ;
+: SPACES 0 DO SPACE LOOP ;
 
 \ ============================================================================
 \ NIVEAU 8 - COMPARAISONS NON-SIGNÉES
@@ -132,21 +136,24 @@
 \ ============================================================================
 
 VARIABLE BASE
-: HEX 16 BASE ! ;
-: DECIMAL 10 BASE ! ;
-: BINARY 2 BASE ! ;
 
 \ Initialiser BASE
 10 BASE !
+
+: HEX 16 BASE ! ;
+: DECIMAL 10 BASE ! ;
+: BINARY 2 BASE ! ;
 
 \ ============================================================================
 \ NIVEAU 13 - ALGORITHMES (simplifiés)
 \ ============================================================================
 
-: SQRT DUP 0= IF EXIT THEN DUP 2/ BEGIN 2DUP 2DUP / + 2/ 2DUP > WHILE NIP REPEAT NIP ;
-: GCD BEGIN ?DUP WHILE TUCK MOD REPEAT ;
-: FIB DUP 2 < IF DROP 1 EXIT THEN 0 1 ROT 0 ?DO OVER + SWAP LOOP DROP ;
+: SQRT DUP 0= IF EXIT THEN DUP 2/ BEGIN 2DUP 2DUP / + 2/ 2DUP > 0= IF NIP EXIT THEN NIP AGAIN ;
+
+: GCD BEGIN DUP 0= 0= WHILE TUCK MOD REPEAT DROP ;
+
+: FIB DUP 2 < IF DROP 1 EXIT THEN 0 1 ROT 0 DO OVER + SWAP LOOP DROP ;
 
 \ ============================================================================
-\ FIN STDLIB_MINIMAL.V v1.4
+\ FIN STDLIB_MINIMAL.V v2.0
 \ ============================================================================

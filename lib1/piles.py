@@ -1,5 +1,5 @@
-# début du "piles" version "16"
-version = ('piles.py', 16)
+# début du "piles" version "2.0"
+version = ('piles.py', 2.0)
 import uasyncio as asyncio
 
 class Piles:
@@ -51,4 +51,4 @@ class Piles:
         return (self.RP0 - self.mem.rp) // 4
 
 piles = Piles()
-# fin du "piles" version "16"
+# fin du "piles" version "2.0"

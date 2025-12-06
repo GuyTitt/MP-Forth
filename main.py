@@ -1,5 +1,5 @@
-# début du "main" version "81"
-version = ('main.py', 81)
+# début du "main" version "2.0"
+version = ('main.py', 2.0)
 
 import uasyncio as asyncio
 import sys
@@ -7,7 +7,7 @@ import sys
 MON_DOSSIER = globals().get('MON_DOSSIER', '')
 
 USE_FORTH_STDLIB = True
-DEBUG_LOAD = False  # Désactiver messages DEBUG
+DEBUG_LOAD = False
 
 # ==========================================
 # CHARGEMENT MODULES
@@ -26,7 +26,7 @@ def charger(nom):
         raise
 
 print("\n" + "="*72)
-print(" CHARGEMENT MODULES FORTH (main.py v81)")
+print(" CHARGEMENT MODULES FORTH (main.py v2.0)")
 print("="*72)
 
 charger('memoire.py')
@@ -150,7 +150,7 @@ async def execute_line(line, show_errors=True):
     cleaned = ""
     in_paren = False
     for c in line:
-        if c == '\\':  # Commentaire jusqu'à fin de ligne
+        if c == '\\':
             break
         if c == '(':
             in_paren = True
@@ -232,7 +232,7 @@ async def execute_line(line, show_errors=True):
             i += 2
             continue
 
-        # ASSIMILE <fichier.v>
+        # ASSIMILE <fichier>
         if t == "ASSIMILE":
             if i + 1 >= len(tokens):
                 print("? ASSIMILE : fichier manquant")
@@ -291,20 +291,20 @@ async def execute_line(line, show_errors=True):
     return True
 
 # ==========================================
-# CHARGEMENT FICHIERS FORTH
+# CHARGEMENT FICHIERS FORTH - VERSION AMÉLIORÉE
 # ==========================================
 
 async def load_forth_file(filename, verbose=False):
-    """Charge et exécute un fichier .v (vocabulaire Forth)"""
+    """Charge et exécute un fichier .txt (vocabulaire Forth)"""
     chemin = MON_DOSSIER + filename if MON_DOSSIER else filename
     
     if verbose:
-        print(f"\n[ASSIMILE] Chargement {filename}...")
+        print(f"[ASSIMILE] Chargement {filename}:", end="")
     
     try:
         with open(chemin, 'r', encoding='utf-8') as f:
-            definitions = 0
-            erreurs = 0
+            definitions = []
+            erreurs = []
             ligne_num = 0
             
             for ligne in f:
@@ -321,40 +321,44 @@ async def load_forth_file(filename, verbose=False):
                     success = await execute_line(ligne, show_errors=False)
                     
                     if not success:
-                        erreurs += 1
-                        if DEBUG_LOAD:
-                            print(f"  ✗ Ligne {ligne_num}: {ligne[:50]}")
+                        erreurs.append((ligne_num, ligne[:50]))
                     else:
                         # Compter définitions
                         if ligne.strip().startswith(':'):
                             parts = ligne.split()
                             if len(parts) > 1:
-                                definitions += 1
+                                word_name = parts[1]
+                                definitions.append(word_name)
                                 if verbose:
-                                    print(f"  ✓ {parts[1]}")
+                                    print(f" {word_name}", end="")
                     
                     mem.state = 0
                     compile_stack.clear()
                     
                 except Exception as e:
-                    erreurs += 1
-                    if DEBUG_LOAD:
-                        print(f"  ✗ Ligne {ligne_num}: {e}")
+                    erreurs.append((ligne_num, str(e)))
                     mem.state = 0
                     compile_stack.clear()
             
             if verbose:
-                print(f"[ASSIMILE] {filename}: {definitions} définitions")
-                if erreurs > 0:
-                    print(f"[ASSIMILE] {erreurs} erreurs ignorées")
+                print()  # Nouvelle ligne après les mots
+                print(f"[ASSIMILE] {filename}: {len(definitions)} définitions")
+                
+                if erreurs:
+                    print(f"\n[ERREURS] {len(erreurs)} erreur(s):")
+                    for num, msg in erreurs[:5]:
+                        print(f"  Ligne {num}: {msg}")
+                    if len(erreurs) > 5:
+                        print(f"  ... et {len(erreurs)-5} autre(s)")
+                    print()
             
-            return True
+            return len(erreurs) == 0
     
     except OSError:
-        print(f"✗ Fichier {filename} introuvable")
+        print(f"\n✗ Fichier {filename} introuvable")
         return False
     except Exception as e:
-        print(f"✗ Erreur {filename}: {e}")
+        print(f"\n✗ Erreur {filename}: {e}")
         if DEBUG_LOAD:
             sys.print_exception(e)
         return False
@@ -366,7 +370,7 @@ async def load_forth_file(filename, verbose=False):
 async def load_stdlib():
     """Charge bibliothèques Forth au démarrage"""
     if not USE_FORTH_STDLIB:
-        return
+        return True
     
     print("\n" + "="*72)
     print(" CHARGEMENT BIBLIOTHÈQUES FORTH")
@@ -374,9 +378,9 @@ async def load_stdlib():
     
     # Ordre de chargement important
     bibliotheques = [
-        ('stdlib_minimal.v', True),   # Vocabulaire de base
-        ('esp32.v', True),             # Matériel ESP32
-        ('applicatif.v', False),       # Utilitaires (optionnel)
+        ('base.txt', True),      # Vocabulaire de base
+        ('esp32.txt', True),     # Matériel ESP32
+        ('utils.txt', False),    # Utilitaires (optionnel)
     ]
     
     for nom, obligatoire in bibliotheques:
@@ -394,7 +398,7 @@ async def load_stdlib():
 
 async def repl():
     print("\n" + "="*72)
-    print(" FORTH ESP32-S3 v81 – SYSTÈME MINIMAL")
+    print(" FORTH ESP32-S3 v2.0 — SYSTÈME MINIMAL")
     print("="*72)
     print(" 21 primitives + bibliothèques Forth = système complet")
     print("="*72 + "\n")
@@ -409,10 +413,7 @@ async def repl():
     
     print("\nCommandes:")
     print("  WORDS  .S  SEE <mot>  VARIABLES")
-    print("  <apps/fichier.v> ASSIMILE  - Charge application")
-    print("\nApplications disponibles:")
-    print("  <apps/3leds.v> ASSIMILE     - 3 LEDs clignotantes")
-    print("  <apps/arcenciel.v> ASSIMILE - Arc-en-ciel NeoPixel")
+    print("  <fichier.txt> ASSIMILE  - Charge vocabulaire")
     print("\nok> ", end='')
     
     while True:
@@ -444,7 +445,6 @@ async def repl():
             print("ok> ", end='')
         except Exception as e:
             print(f"\n✗ {e}")
-            # Pas de trace détaillée, juste le message
             mem.state = 0
             compile_stack.clear()
             print("ok> ", end='')
@@ -452,4 +452,4 @@ async def repl():
 print("Système prêt\n")
 asyncio.run(repl())
 
-# fin du "main" version "81"
+# fin du "main" version "2.0"

@@ -1,5 +1,5 @@
-# début du "core_system" version "55"
-version = ('core_system.py', 55)
+# début du "core_system" version "2.0"
+version = ('core_system.py', 2.0)
 
 """
 VOCABULAIRE PRIMITIF MINIMAL - 21 primitives Python → Assembleur
@@ -62,7 +62,8 @@ if not __core_sys_done:
             immediate = bool(fl & 0x80)
             addr += 1
             name = "".join(chr(mem.cpeek(addr + i)) for i in range(length))
-            code_addr = addr + length + (4 - (length + 1) % 4) % 4
+            code_addr = addr + length
+            code_addr = (code_addr + 3) & ~3
             code = mem.wpeek(code_addr)
             all_words[name] = {'code': code, 'imm': immediate}
             addr = link
@@ -148,7 +149,8 @@ if not __core_sys_done:
             length = fl & 0x7F
             addr += 1
             name = "".join(chr(mem.cpeek(addr + i)) for i in range(length))
-            code_addr = addr + length + (4 - (length + 1) % 4) % 4
+            code_addr = addr + length
+            code_addr = (code_addr + 3) & ~3
             code = mem.wpeek(code_addr)
             
             if code == 202:
@@ -247,9 +249,9 @@ if not __core_sys_done:
     c("VARIABLES", OP_VARIABLES)
     
     print(f"\n\n✓ 21 primitives + marqueurs + système")
-    print(f"✓ stdlib_minimal.v v1.1 : mots manquants corrigés\n")
+    print(f"✓ Prêt pour chargement stdlib_minimal.v v2.0\n")
     
     print(f"core_system.py v{version[1]} chargé\n")
     __core_sys_done = True
 
-# fin du "core_system" version "55"
+# fin du "core_system" version "2.0"
