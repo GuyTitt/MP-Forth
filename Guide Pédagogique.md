@@ -1,6 +1,6 @@
 # Guide Pédagogique - Interpréteur Forth ESP32-S3
 
-**Version 1.0** - Documentation complète du système
+**Version 1.1** - Documentation complète du système
 
 ---
 
@@ -12,6 +12,7 @@
 4. [Les vocabulaires](#vocabulaires)
 5. [Flux d'exécution](#execution)
 6. [Détail des modules](#modules)
+7. [Multitâche et Concurrence](#multitasking)
 
 ---
 
@@ -27,21 +28,66 @@ boot.py (lancé au reset)
        ├── dictionnaire.py    (mots/lookup)
        ├── core_primitives.py (opcodes 1-200)
        ├── core_system.py     (mots système)
-       └── core_system1.py    (CREATE/DOES>)
+       ├── core_system1.py    (CREATE/DOES>)
+       ├── core_level2.py     (mots Forth niveau 2)
+       ├── core_hardware.py   (GPIO, Time, NeoPixel)
+       └── stdlib.f4          (bibliothèque Forth pure - optionnel)
 ```
 
 ### Versions actuelles
 
 | Module | Version | Rôle |
 |--------|---------|------|
-| boot.py | v23 | Initialisation système |
-| main.py | v66 | REPL principal |
-| memoire.py | v14 | Gestion mémoire |
-| piles.py | v13 | Piles données/retour |
-| dictionnaire.py | v28 | Recherche/création mots |
-| core_primitives.py | v35 | Primitives bas niveau |
-| core_system.py | v44 | Vocabulaire système |
+| boot.py | v25 | Initialisation système |
+| main.py | v74 | REPL principal |
+| memoire.py | v17 | Gestion mémoire (adaptative) |
+| piles.py | v15 | Piles données/retour |
+| dictionnaire.py | v30 | Recherche/création mots |
+| core_primitives.py | v36 | Primitives bas niveau |
+| core_system.py | v46 | Vocabulaire système |
 | core_system1.py | v2 | Mots avancés |
+| core_level2.py | v1 | Mots Forth compilés |
+| core_hardware.py | v2 | GPIO, Time, NeoPixel |
+| stdlib.v | v1.0 | Bibliothèque Forth pure |
+
+---
+
+## 💾 Gestion de la mémoire - Important !
+
+### Tailles RAM selon les cartes
+
+| Carte | RAM interne | PSRAM | Total disponible |
+|-------|-------------|-------|------------------|
+| ESP32-S3 basique | ~320KB | 0 | ~320KB |
+| ESP32-S3N8 | ~320KB | 8MB | ~8.3MB |
+| ESP32-S3N16R8 | ~320KB | 8MB | ~8.3MB (si PSRAM activée) |
+| Wokwi (simulation) | Illimité | - | Illimité |
+
+### Allocation mémoire adaptative (v17)
+
+`memoire.py v17` détecte automatiquement la RAM disponible et alloue :
+- **512KB** si possible (Wokwi, cartes avec PSRAM)
+- **256KB** si échec (ESP32-S3 sans PSRAM)
+- **128KB** en dernier recours
+- **64KB** minimum requis
+
+**Sortie typique** :
+```
+RAM Forth allouée: 256KB (libre: 180KB)
+  Zones: Dict=0x100-0x100, Piles=0x3ff00-0x3fff0
+```
+
+### Problème PSRAM non détectée
+
+Si vous voyez :
+```
+E (301) quad_psram: PSRAM ID read error
+```
+
+**Solutions** :
+1. Utiliser la version adaptative (memoire.py v17) ✅
+2. Activer PSRAM dans sdkconfig de MicroPython (complexe)
+3. Accepter 256KB au lieu de 512KB (largement suffisant)
 
 ---
 
@@ -162,32 +208,37 @@ OP_DOT = 17     # Affichage .
 - Compilés dans la zone dictionnaire
 - Corps = séquence d'opcodes + EXIT
 
-### 3. Vocabulaire SPÉCIALISÉ (matériel)
+### 3. Vocabulaire NIVEAU 2 (core_level2.py)
+
+**Rôle** : Mots Forth standards compilés en Python
+
+**Exemples** :
+- `?DUP` - Duplique si non-zéro
+- `*/` - Multiplication puis division
+- `/MOD` - Division avec modulo
+- `2SWAP` `2OVER` - Manipulation doubles
+
+### 4. Vocabulaire SPÉCIALISÉ (matériel)
 
 **Rôle** : Interaction avec le microcontrôleur ESP32-S3
 
 **Domaines** :
-- **UART** : communication série
-- **WiFi** : réseau sans fil
-- **GPIO** : entrées/sorties digitales
-- **ADC** : conversion analogique-numérique
-- **PWM** : modulation largeur d'impulsion
-- **Timers** : gestion du temps
-- **Interruptions** : événements asynchrones
-- **RTC** : horloge temps réel
+- **GPIO** : PIN-OUT, PIN-IN, PIN-HIGH, PIN-LOW, PIN-READ, PIN-TOGGLE
+- **TIME** : MS, US, TICKS-MS, TICKS-US, TICKS-DIFF
+- **NEOPIXEL** : NEO-INIT, NEO-SET, NEO-WRITE, NEO-FILL, NEO-CLEAR
+- **À venir** : UART, WiFi, ADC, PWM, Timers, Interruptions, RTC
 
 **Exemple** :
 ```forth
 : LED-ON  ( pin -- )
-  OUTPUT-MODE     \ Configure en sortie
-  1 SWAP GPIO! ;  \ Écrit HIGH
+  DUP PIN-OUT PIN-HIGH ;
 
 : READ-TEMP ( -- temp )
   ADC-CHANNEL-0 ADC-READ
   3300 * 4095 / ; \ Conversion en mV
 ```
 
-### 4. Vocabulaire APPLICATIF (utilisateur)
+### 5. Vocabulaire APPLICATIF (utilisateur)
 
 **Rôle** : Logique métier de l'application
 
@@ -199,12 +250,17 @@ VARIABLE compteur
 : FIBONACCI ( n -- fib[n] )
   0 1 ROT 0 DO OVER + SWAP LOOP DROP ;
 
-: CLIGNOTER ( n -- )
-  0 DO
-    LED-ON 500 MS
-    LED-OFF 500 MS
-  LOOP ;
+: CLIGNOTER ( pin times delay -- )
+  >R >R DUP PIN-OUT 
+  R> 0 DO DUP PIN-TOGGLE R@ MS LOOP 
+  DROP R> DROP ;
 ```
+
+### 6. Bibliothèque stdlib.f4
+
+**Rôle** : Implémentations Forth pures (pour migration vers Forth pur)
+
+Le fichier `stdlib.f4` contient toutes les définitions en Forth pur, organisées par niveau. Ces définitions peuvent remplacer progressivement les implémentations Python.
 
 ---
 
@@ -273,11 +329,15 @@ async def execute_colon(addr):
 3. Définit `MON_DOSSIER` dans globals()
 4. Lance `main.py`
 
-**Note** : N'est PAS appelé par un autre module, c'est le système qui l'exécute.
+**Modules testés** :
+- boot.py, main.py, memoire.py, piles.py
+- dictionnaire.py, core_primitives.py, core_system.py, core_system1.py
+- core_level2.py, core_hardware.py
+- words_level1.py (optionnel), tests.py (optionnel), stdlib.f4 (optionnel)
 
 ---
 
-### main.py (v66)
+### main.py (v72)
 
 **Rôle** : REPL (Read-Eval-Print Loop)
 
@@ -287,6 +347,11 @@ async def execute_colon(addr):
 - `execute_primitive()` : appelle dispatch[opcode]
 - `execute_colon()` : interprète mots compilés
 - `repl()` : boucle principale
+
+**Variable de configuration** :
+```python
+USE_FORTH_STDLIB = False  # True = utilise stdlib.f4
+```
 
 **Flux** :
 ```python
@@ -302,7 +367,7 @@ boucle infinie :
 
 ---
 
-### memoire.py (v14)
+### memoire.py (v15)
 
 **Rôle** : Abstraction mémoire RAM
 
@@ -324,7 +389,7 @@ rp = 0x7FF00               # Top pile retour
 
 ---
 
-### piles.py (v13)
+### piles.py (v14)
 
 **Rôle** : Gestion des 2 piles
 
@@ -341,13 +406,14 @@ rp = 0x7FF00               # Top pile retour
 
 ---
 
-### dictionnaire.py (v28)
+### dictionnaire.py (v30)
 
 **Rôle** : Création et recherche de mots
 
 **Fonctions** :
 - `align_here()` : aligne sur 4 octets
 - `create(name, code, immediate)` : crée header
+- `create_colon_word(name, body_addr)` : crée mot colon
 - `find(name)` : recherche mot → (code, imm)
 - `see_word(name)` : décompilation
 
@@ -360,13 +426,13 @@ rp = 0x7FF00               # Top pile retour
 **Rôle** : Primitives bas niveau
 
 **Catégories** :
-- **Pile** : DUP DROP SWAP OVER ROT 2DUP...
-- **Arithmétique** : + - * / MOD ABS 1+ 1-...
-- **Comparaison** : < > = 0< 0=...
-- **Mémoire** : @ ! C@ C!...
-- **I/O** : . CR EMIT SPACE...
-- **Logique** : AND OR XOR NOT INVERT...
-- **Contrôle** : IF THEN DO LOOP...
+- **Pile** : DUP DROP SWAP OVER ROT 2DUP 2DROP NIP TUCK
+- **Arithmétique** : + - * / MOD ABS 1+ 1- 2* 2/ NEGATE
+- **Comparaison** : < > = <> 0< 0= 0> U<
+- **Mémoire** : @ ! C@ C! +@ +!
+- **I/O** : . CR EMIT SPACE SPACES
+- **Logique** : AND OR XOR NOT INVERT LSHIFT RSHIFT
+- **Contrôle** : IF ELSE THEN BEGIN UNTIL WHILE REPEAT AGAIN DO LOOP +LOOP I J UNLOOP
 
 **Table dispatch** :
 ```python
@@ -380,17 +446,17 @@ dispatch = {
 
 ---
 
-### core_system.py (v44)
+### core_system.py (v46)
 
 **Rôle** : Vocabulaire système niveau 1
 
 **Actions** :
 1. Importe primitives
-2. Définit mots système (WORDS, SEE, .S...)
+2. Définit mots système (WORDS, SEE, .S, VARIABLES...)
 3. Crée tous les mots dans le dictionnaire
 4. Charge core_system1.py
 
-**Mots créés** : EXIT, DUP, +, -, IF, THEN, DO, LOOP, WORDS...
+**Mots créés** : EXIT, DUP, +, -, IF, THEN, DO, LOOP, WORDS, MIN, MAX, VARIABLE, CONSTANT, HERE, ALLOT, , , C,
 
 ---
 
@@ -404,24 +470,81 @@ dispatch = {
 - VOCABULARY (espaces de noms)
 - IMMEDIATE (mots immédiats)
 - EXECUTE (exécution dynamique)
+- FIND, COMPILE, [, ], [COMPILE], '
+- Formatage numérique : #, <#, #>, #S
 
 ---
 
-## 🐛 Problèmes connus
+### core_level2.py (v1)
 
-### Erreur "wpeek overflow" lors appel mot colon
+**Rôle** : Mots Forth niveau 2 compilés en Python
 
-**Cause** : L'adresse du code n'est pas correctement sauvegardée
-
-**Solution** : Voir correction dans main.py v67
+**15 mots définis** :
+- ?DUP, */, /MOD, WITHIN
+- PICK, ROLL, 2SWAP, 2OVER
+- ABS (version colon), S>D
+- M*, UM*, FM/MOD, SM/REM, UM/MOD
 
 ---
 
-## 📚 Références
+### core_hardware.py (v2)
 
-- **ANS Forth Standard** : https://forth-standard.org/
-- **ESP32-S3 Datasheet** : Documentation Espressif
-- **MicroPython** : https://docs.micropython.org/
+**Rôle** : Vocabulaire matériel ESP32-S3
+
+**GPIO (8 mots)** :
+- PIN-OUT, PIN-IN - Configuration
+- PIN-HIGH, PIN-LOW - Écriture
+- PIN-READ - Lecture
+- PIN-TOGGLE - Inversion
+- PIN-PULLUP, PIN-PULLDOWN - Résistances
+
+**TIME (5 mots)** :
+- MS, US - Pauses
+- TICKS-MS, TICKS-US - Timestamps
+- TICKS-DIFF - Calcul durée
+
+**NEOPIXEL (5 mots)** :
+- NEO-INIT - Initialise strip WS2812
+- NEO-SET - Définit couleur RGB d'une LED
+- NEO-WRITE - Affiche changements
+- NEO-FILL - Remplit toutes les LEDs
+- NEO-CLEAR - Éteint tout
+
+**Exemple NeoPixel** :
+```forth
+\ LED interne LilyGO T-Display-S3 (GPIO48)
+48 1 NEO-INIT           ( 1 LED sur GPIO48 )
+48 0 255 0 0 NEO-SET    ( Rouge )
+48 NEO-WRITE            ( Affiche )
+1000 MS
+48 0 0 255 0 NEO-SET    ( Vert )
+48 NEO-WRITE
+1000 MS
+48 NEO-CLEAR            ( Éteint )
+```
+
+---
+
+### stdlib.f4 (v1.0)
+
+**Rôle** : Bibliothèque Forth pure (préparation migration)
+
+**Contenu organisé par niveau** :
+1. **Niveau 1** - Mots de base (pile, arithmétique, comparaisons)
+2. **Niveau 2** - Structures de contrôle (?DO, CASE/ENDCASE)
+3. **Niveau 3** - I/O formaté (.", S", .R, HEX, DECIMAL)
+4. **Niveau 4** - Hardware (LED-INIT, BLINK, NEO-RAINBOW)
+5. **Niveau 5** - Algorithmes (SQRT, GCD, FIB, BUBBLE-SORT)
+6. **Niveau 6** - Multitâche (TASK, PAUSE, SLEEP)
+
+**Utilisation** :
+```forth
+\ Charger dans Forth
+LOAD stdlib.f4
+
+\ Ou inclure au démarrage dans main.py
+USE_FORTH_STDLIB = True
+```
 
 ---
 
@@ -465,63 +588,9 @@ Task Control Block (TCB) - 32 octets par tâche:
 └────────────┴─────┴────────────────────────┘
 ```
 
-**Implémentation Forth** :
+**Implémentation** : Voir stdlib.f4 niveau 6
 
-```forth
-VARIABLE TASK-LIST     \ Liste chaînée des tâches
-VARIABLE CURRENT-TASK  \ Tâche en cours
-
-: TASK ( size "name" -- addr )
-  \ Crée TCB + espace piles
-  CREATE 
-    HERE TASK-LIST @ , TASK-LIST !  \ Chaîne
-    HERE 32 + ,  \ SP
-    HERE 32 + ,  \ RP
-    0 ,          \ STATUS
-    0 ,          \ IP
-    0 ,          \ WAKE-TIME
-    0 , 0 ,      \ NAME
-  32 ALLOT       \ Espace piles locales
-  DOES> ;
-
-: ACTIVATE ( xt task -- )
-  \ Lance une tâche
-  SWAP OVER 16 + !    \ Sauve IP
-  0 OVER 12 + ! ;     \ STATUS = prête
-
-: PAUSE ( -- )
-  \ Sauvegarde contexte et change de tâche
-  \ 1. Sauver SP, RP, IP de la tâche courante
-  \ 2. Trouver prochaine tâche prête
-  \ 3. Restaurer SP, RP, IP de la nouvelle tâche
-  CURRENT-TASK @ DUP
-  SP@ SWAP 4 + !       \ Sauve SP
-  RP@ SWAP 8 + !       \ Sauve RP
-  @ DUP CURRENT-TASK ! \ Tâche suivante
-  DUP 4 + @ SP!        \ Restaure SP
-  8 + @ RP! ;          \ Restaure RP
-
-: SLEEP ( ms -- )
-  \ Suspend tâche pendant ms
-  TICKS-MS + CURRENT-TASK @ 20 + ! 
-  1 CURRENT-TASK @ 12 + !  \ STATUS = suspendue
-  PAUSE ;
-
-: WAKE-TASKS ( -- )
-  \ Réveille tâches dont le délai a expiré
-  TASK-LIST @ 
-  BEGIN ?DUP WHILE
-    DUP 12 + @ 1 = IF  \ Si suspendue
-      DUP 20 + @ TICKS-MS < IF  \ Si délai expiré
-        0 OVER 12 + !  \ STATUS = prête
-      THEN
-    THEN
-    @ 
-  REPEAT ;
-```
-
-**Exemple complet - 3 LEDs indépendantes** :
-
+**Exemple complet** :
 ```forth
 \ Définir les tâches
 TASK led1-task
@@ -529,22 +598,13 @@ TASK led2-task
 TASK led3-task
 
 : led1-loop ( -- )
-  BEGIN
-    2 PIN-HIGH 500 SLEEP
-    2 PIN-LOW 500 SLEEP
-  AGAIN ;
+  BEGIN 2 PIN-HIGH 500 SLEEP 2 PIN-LOW 500 SLEEP AGAIN ;
 
 : led2-loop ( -- )
-  BEGIN
-    3 PIN-HIGH 300 SLEEP
-    3 PIN-LOW 300 SLEEP
-  AGAIN ;
+  BEGIN 3 PIN-HIGH 300 SLEEP 3 PIN-LOW 300 SLEEP AGAIN ;
 
 : led3-loop ( -- )
-  BEGIN
-    4 PIN-HIGH 1000 SLEEP
-    4 PIN-LOW 1000 SLEEP
-  AGAIN ;
+  BEGIN 4 PIN-HIGH 1000 SLEEP 4 PIN-LOW 1000 SLEEP AGAIN ;
 
 \ Initialiser
 : INIT-TASKS
@@ -555,12 +615,7 @@ TASK led3-task
   led1-task CURRENT-TASK ! ;
 
 \ Scheduler principal
-: RUN-TASKS
-  INIT-TASKS
-  BEGIN
-    WAKE-TASKS
-    PAUSE
-  KEY? UNTIL ;
+: RUN-TASKS INIT-TASKS BEGIN WAKE-TASKS PAUSE KEY? UNTIL ;
 ```
 
 ### Solution 2 : Asyncio MicroPython (actuel)
@@ -588,31 +643,7 @@ asyncio.gather(task1(), task2())
 
 ### Solution 3 : Timer Hardware ESP32
 
-Utiliser les timers matériels pour déclencher des interruptions :
-
-```forth
-\ À implémenter avec primitives timer
-VARIABLE LED1-STATE
-VARIABLE LED2-STATE
-
-: LED1-ISR ( -- )
-  \ Handler interruption timer1
-  LED1-STATE @ 0= IF
-    2 PIN-HIGH 1 LED1-STATE !
-  ELSE
-    2 PIN-LOW 0 LED1-STATE !
-  THEN ;
-
-: INIT-TIMER1 ( us -- )
-  \ Configure timer1 pour us microsecondes
-  \ Appelle LED1-ISR à chaque expiration
-  \ [Code spécifique ESP32 à implémenter]
-  ;
-
-: DEMO-TIMER
-  500000 INIT-TIMER1  \ 500ms
-  BEGIN KEY? UNTIL ;
-```
+Utiliser les timers matériels pour déclencher des interruptions.
 
 ### Comparaison des approches
 
@@ -622,33 +653,14 @@ VARIABLE LED2-STATE
 | **Asyncio Python** | Simple, robuste | Dépend de MicroPython |
 | **Timer hardware** | Précis, sans surcharge | Limité par nb de timers |
 
-### État/Événements entre tâches
+---
 
-Communication via **variables partagées** :
+## 📚 Références
 
-```forth
-VARIABLE SENSOR-VALUE
-VARIABLE ALARM-FLAG
-
-: sensor-task ( -- )
-  BEGIN
-    read-sensor SENSOR-VALUE !
-    SENSOR-VALUE @ 100 > IF
-      1 ALARM-FLAG !
-    THEN
-    100 SLEEP
-  AGAIN ;
-
-: alarm-task ( -- )
-  BEGIN
-    ALARM-FLAG @ IF
-      led-blink
-      0 ALARM-FLAG !
-    THEN
-    50 SLEEP
-  AGAIN ;
-```
+- **ANS Forth Standard** : https://forth-standard.org/
+- **ESP32-S3 Datasheet** : Documentation Espressif
+- **MicroPython** : https://docs.micropython.org/
 
 ---
 
-*Guide rédigé pour le projet Forth ESP32-S3 - Version 1.0*
+*Guide rédigé pour le projet Forth ESP32-S3 - Version 1.1*
